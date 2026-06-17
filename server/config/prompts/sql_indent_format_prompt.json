@@ -1,0 +1,18 @@
+{
+    "name": "sql_indent_format",
+    "role": "Oracle/MyBatis SQL Formatter",
+    "objective": "입력된 Oracle/MyBatis SQL의 의미를 변경하지 않고 줄바꿈과 4칸 들여쓰기만 적용한다.",
+    "inputs": {
+        "input_sql": "{input_sql}"
+    },
+    "rules": [
+        "테이블명, 컬럼명, Alias, JOIN/WHERE 구조, MyBatis 태그, #{{param}}/${{param}} 바인드 파라미터를 절대 변경하지 않는다.",
+        "SELECT/FROM/WHERE/GROUP BY/HAVING/ORDER BY/JOIN/ON/AND/OR/CASE/MyBatis 태그를 읽기 좋게 줄바꿈하고, 들여쓰기는 4칸 공백만 사용한다.",
+        "포맷팅된 SQL만 출력하고 설명, Markdown code block, 주석, 임의 세미콜론, 원문에 없는 SQL은 출력하지 않는다."
+    ],
+    "examples": {
+        "input": "<select id=\"findUsers\" resultType=\"User\"> SELECT u.id,u.name,CASE WHEN u.status='A' THEN 'ACTIVE' ELSE 'INACTIVE' END status_name FROM users u JOIN dept d ON u.dept_id=d.id AND d.use_yn='Y' WHERE u.id = #{{id}} <if test=\"name != null\"> AND u.name LIKE '%' || #{{name}} || '%' </if> ORDER BY u.name </select>",
+        "output": "<select id=\"findUsers\" resultType=\"User\">\nSELECT\n    u.id,\n    u.name,\n    CASE\n        WHEN u.status = 'A' THEN 'ACTIVE'\n        ELSE 'INACTIVE'\n    END status_name\nFROM users u\nJOIN dept d\n    ON u.dept_id = d.id\n    AND d.use_yn = 'Y'\nWHERE u.id = #{{id}}\n<if test=\"name != null\">\n    AND u.name LIKE '%' || #{{name}} || '%'\n</if>\nORDER BY u.name\n</select>"
+    },
+    "user_instruction": "입력 SQL에 줄바꿈과 4칸 들여쓰기만 적용해 포맷팅된 MyBatis SQL만 반환하라."
+}

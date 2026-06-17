@@ -1,0 +1,1 @@
+"""SQL formatting agent package."""

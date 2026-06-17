@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "description": "Supervisor chatbot SQL FAIL aggregate-analysis hints maintained by admins.",
+  "sql_conversion_hints": [
+    {
+      "id": "missing_order_by_expression",
+      "match_keywords": ["missing ORDER BY expression", "ORDER BY expression", "ROW_NUMBER", "OVER()"],
+      "likely_cause": "ROW_NUMBER() 같은 분석 함수에서 OVER() 절 안에 ORDER BY가 누락된 경우가 많음.",
+      "check_points": [
+        "ROW_NUMBER(), RANK(), DENSE_RANK() 등 분석 함수의 OVER 절 확인",
+        "원본 SQL의 정렬 기준 컬럼이 변환 SQL에 유지됐는지 확인"
+      ],
+      "suggested_fix": "분석 함수 OVER 절에 원본 의미에 맞는 ORDER BY 컬럼을 명시한다."
+    },
+    {
+      "id": "invalid_identifier",
+      "match_keywords": ["invalid identifier", "ORA-00904"],
+      "likely_cause": "매핑룰 적용 오류 또는 Alias-컬럼 관계가 맞지 않는 경우가 많음.",
+      "check_points": [
+        "Alias가 선언된 scope 안에서 컬럼을 참조하는지 확인",
+        "매핑룰 적용 후 컬럼명이 실제 테이블/서브쿼리 결과 컬럼과 일치하는지 확인",
+        "동일 컬럼명이 여러 Alias에 걸쳐 잘못 치환되지 않았는지 확인"
+      ],
+      "suggested_fix": "Alias와 컬럼 참조 관계를 다시 맞추고, 매핑룰 치환 결과를 원본 FROM/JOIN 구조와 대조한다."
+    },
+    {
+      "id": "unexpected_end_of_sql_command",
+      "match_keywords": ["unexpected end of SQL command", "ORA-00933", "ORA-00907"],
+      "likely_cause": "날짜 변환 함수에서 데이터 형식이 일치하지 않거나 괄호/구문이 끝까지 완성되지 않은 케이스가 많음.",
+      "check_points": [
+        "TO_DATE, TO_TIMESTAMP, DATE_FORMAT 등 날짜 변환 함수의 인자 개수와 포맷 확인",
+        "괄호, CASE WHEN, 서브쿼리, JOIN 조건이 끝까지 닫혔는지 확인",
+        "변환 전후 날짜 포맷 문자열이 DB 문법에 맞는지 확인"
+      ],
+      "suggested_fix": "날짜 변환 포맷을 대상 DB 문법에 맞추고, 누락된 괄호/절을 보완한다."
+    },
+    {
+      "id": "invalid_number",
+      "match_keywords": ["invalid number", "ORA-01722"],
+      "likely_cause": "숫자형/문자형 타입 변환 실패인 경우가 많고, 불필요한 따옴표 또는 암시적 형변환이 원인일 수 있음.",
+      "check_points": [
+        "숫자 컬럼과 문자열 리터럴 비교 여부 확인",
+        "TO_NUMBER 대상 값에 숫자가 아닌 문자가 섞였는지 확인",
+        "매핑룰 적용 과정에서 숫자 리터럴에 따옴표가 추가됐는지 확인"
+      ],
+      "suggested_fix": "숫자 비교에서는 불필요한 따옴표를 제거하고, 필요한 경우 명시적 타입 변환과 예외 처리를 적용한다."
+    }
+  ],
+  "sql_tuning_hints": []
+}
