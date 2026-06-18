@@ -15,7 +15,6 @@ class MigrationState(TypedDict):
 
     db_attempts: int
     max_attempts: int
-    llm_retry_count: int
 
     current_ddl_sql: Optional[str]
     current_migration_sql: Optional[str]

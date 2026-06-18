@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 from utils.db import get_mig_jobs, get_mig_dtl, get_mig_logs
 
-_COLS_TABLE = ["MAP_ID", "STATUS", "FR_TABLE", "TO_TABLE", "USE_YN", "TARGET_YN",
+_COLS_TABLE = ["MAP_ID", "STATUS", "FR_TABLE", "TO_TABLE", "USE_YN",
                "PRIORITY", "PRIOR_MAP_ID", "RETRY_COUNT", "ELAPSED_SECONDS", "UPD_TS"]
 
 _MIG_DETAIL_OPTIONS = {
@@ -106,7 +106,7 @@ def render():
 
     # ── 필터 ──────────────────────────────────────────────────────────────────
     with st.expander("🔍 검색 / 필터", expanded=True):
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         with c1:
             keyword = st.text_input("MAP_ID 검색", placeholder="예) 1")
         with c2:
@@ -115,9 +115,6 @@ def render():
         with c3:
             use_opts = ["전체"] + sorted(df_all["USE_YN"].dropna().unique().tolist())
             sel_use = st.selectbox("USE_YN", use_opts)
-        with c4:
-            tgt_opts = ["전체"] + sorted(df_all["TARGET_YN"].dropna().unique().tolist())
-            sel_tgt = st.selectbox("TARGET_YN", tgt_opts)
 
     df = df_all.copy()
     if keyword:
@@ -126,9 +123,6 @@ def render():
         df = df[df["STATUS"] == sel_status]
     if sel_use != "전체":
         df = df[df["USE_YN"] == sel_use]
-    if sel_tgt != "전체":
-        df = df[df["TARGET_YN"] == sel_tgt]
-
     show_cols = [c for c in _COLS_TABLE if c in df.columns]
     st.write(f"**{len(df)}건** 조회됨")
     st.dataframe(df[show_cols], width="stretch", hide_index=True)

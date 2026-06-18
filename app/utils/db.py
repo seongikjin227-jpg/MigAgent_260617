@@ -119,7 +119,7 @@ def _optional_column_expr(column_name: str, available_columns: set[str], data_ty
 def get_mig_jobs() -> list[dict]:
     q = f"""
         SELECT MAP_ID, MAP_TYPE, FR_TABLE, TO_TABLE,
-               USE_YN, TARGET_YN, PRIORITY, STATUS,
+               USE_YN, PRIORITY, STATUS,
                PRIOR_MAP_ID, MIG_SQL, VERIFY_SQL,
                BATCH_CNT, ELAPSED_SECONDS, RETRY_COUNT,
                TO_CHAR(CREATED_AT) AS CREATED_AT,
@@ -523,11 +523,11 @@ def get_recent_sql_stage_logs(limit: int = 100) -> list[dict]:
 # ── Re-run / 재실행 DB 초기화 ────────────────────────────────────────────────
 
 def reset_mig_job_for_rerun(map_id: int) -> bool:
-    """Migration 작업을 최우선 재실행 가능 상태로 초기화합니다."""
+    """Migration 작업을 재실행 가능 상태로 초기화합니다."""
     q = f"""
         UPDATE {MIG_TABLE}
         SET USE_YN = 'Y',
-            STATUS = 'URGENT',
+            STATUS = NULL,
             RETRY_COUNT = 0,
             MIG_SQL = NULL,
             UPD_TS = CURRENT_TIMESTAMP

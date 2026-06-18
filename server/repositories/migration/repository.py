@@ -13,11 +13,7 @@ def ensure_str(val):
     return val
 
 _STATUS_PRIORITY = {
-    "URGENT": 0,
-    "READY": 1,
-    "FAIL": 2,
-    "PENDING": 3,
-    "": 4,
+    "": 0,
 }
 
 def _job_sort_key(job: MappingRule):
@@ -39,25 +35,16 @@ def get_pending_jobs() -> list[MappingRule]:
             FROM {map_table} M
             LEFT JOIN {map_table} P ON P.MAP_ID = M.PRIOR_MAP_ID
             WHERE UPPER(TRIM(NVL(M.USE_YN, 'N'))) = 'Y'
-              AND UPPER(TRIM(NVL(M.TARGET_YN, 'N'))) = 'Y'
-              AND UPPER(TRIM(NVL(M.STATUS, 'PENDING'))) NOT IN ('PASS', 'NA')
+              AND M.STATUS IS NULL
               AND (M.PRIOR_MAP_ID IS NULL OR M.PRIOR_MAP_ID <= 0 OR UPPER(TRIM(NVL(P.STATUS, ''))) = 'PASS')
             ORDER BY
                 M.PRIORITY ASC,
-                CASE UPPER(TRIM(NVL(M.STATUS, 'PENDING')))
-                    WHEN 'URGENT' THEN 1
-                    WHEN 'READY' THEN 2
-                    WHEN 'FAIL' THEN 3
-                    WHEN 'SKIP' THEN 4
-                    WHEN 'PENDING' THEN 5
-                    ELSE 6
-                END ASC,
                 M.MAP_ID ASC
             FETCH FIRST 1 ROW ONLY
         )
         SELECT
             R.MAP_ID, R.MAP_TYPE, R.FR_TABLE, R.TO_TABLE,
-            R.USE_YN, R.TARGET_YN, R.PRIORITY,
+            R.USE_YN, R.PRIORITY,
             R.MIG_SQL, R.VERIFY_SQL, R.STATUS, R.CORRECT_SQL, R.USER_EDITED,
             R.BATCH_CNT, R.ELAPSED_SECONDS, R.RETRY_COUNT,
             R.CREATED_AT, R.UPD_TS, R.CONDITION, R.PRIOR_MAP_ID,
@@ -83,30 +70,29 @@ def get_pending_jobs() -> list[MappingRule]:
                         fr_table=ensure_str(row[2]),
                         to_table=ensure_str(row[3]),
                         use_yn=ensure_str(row[4]),
-                        target_yn=ensure_str(row[5]),
-                        priority=row[6],
-                        prior_map_id=row[18],
-                        mig_sql=ensure_str(row[7]),
-                        verify_sql=ensure_str(row[8]),
-                        status=ensure_str(row[9]),
-                        correct_sql=ensure_str(row[10]),
-                        user_edited=ensure_str(row[11]),
-                        batch_cnt=row[12] if row[12] is not None else 0,
-                        elapsed_seconds=row[13] if row[13] is not None else 0,
-                        retry_count=row[14] if row[14] is not None else 0,
-                        created_at=row[15],
-                        upd_ts=row[16],
-                        condition=ensure_str(row[17]),
+                        priority=row[5],
+                        prior_map_id=row[17],
+                        mig_sql=ensure_str(row[6]),
+                        verify_sql=ensure_str(row[7]),
+                        status=ensure_str(row[8]),
+                        correct_sql=ensure_str(row[9]),
+                        user_edited=ensure_str(row[10]),
+                        batch_cnt=row[11] if row[11] is not None else 0,
+                        elapsed_seconds=row[12] if row[12] is not None else 0,
+                        retry_count=row[13] if row[13] is not None else 0,
+                        created_at=row[14],
+                        upd_ts=row[15],
+                        condition=ensure_str(row[16]),
                         details=[]
                     )
                     jobs[map_id] = rule
 
-                if row[19] is not None:
+                if row[18] is not None:
                     detail = MappingDetail(
-                        map_dtl=row[19],
+                        map_dtl=row[18],
                         map_id=map_id,
-                        fr_col=ensure_str(row[20]),
-                        to_col=ensure_str(row[21])
+                        fr_col=ensure_str(row[19]),
+                        to_col=ensure_str(row[20])
                     )
                     jobs[map_id].details.append(detail)
 

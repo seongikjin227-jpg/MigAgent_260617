@@ -30,7 +30,6 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
         return default
 
 
-LLM_MAX_RETRY = _env_int("DB_MIGRATION_LLM_MAX_RETRY", 2)
 BIZ_MAX_ATTEMPTS = _env_int("DB_MIGRATION_MAX_ATTEMPTS", 10, minimum=1)
 
 def _extract_table_names(fr_table: str) -> list:
@@ -105,10 +104,7 @@ def generate_sql_node(state: MigrationState) -> dict:
     job = state["next_sql_info"]
     job.retry_count = state["db_attempts"] - 1
 
-    llm_retry = state.get("llm_retry_count", 0)
     attempt_msg = f"{state['db_attempts']}"
-    if llm_retry > 0:
-        attempt_msg += f" (LLM Retry {llm_retry}/{LLM_MAX_RETRY})"
 
     logger.info(f"[Graph:LLM] Attempt {attempt_msg} | SQL 생성 요청")
     try:
@@ -190,7 +186,7 @@ def finalize_node(state: MigrationState) -> dict:
         return {"elapsed_time": elapsed, "status": "FAIL"}
 
 # Routing Logic
-def should_continue(state: MigrationState) -> Literal["generate", "finalize", "verify", "execute", "llm_retry_wait"]:
+def should_continue(state: MigrationState) -> Literal["generate", "finalize", "verify", "execute"]:
     error_type = state.get("error_type")
 
     if state.get("status") in ("PASS", "SKIP", "WAITING"):
@@ -208,10 +204,7 @@ def should_continue(state: MigrationState) -> Literal["generate", "finalize", "v
             logger.critical(f"[Graph:LLM_FATAL] 할당량 초과 또는 인프라 에러 감지. 배치를 즉시 중단합니다: {state['last_error']}")
             raise BatchAbortError(f"LLM 인프라 에러(할당량 초과 등): {state['last_error']}")
 
-        if state["llm_retry_count"] < LLM_MAX_RETRY:
-            return "llm_retry_wait"
-        else:
-            raise BatchAbortError(f"LLM 재시도 초과: {state['last_error']}")
+        raise BatchAbortError(f"LLM 호출 실패: {state['last_error']}")
 
     if error_type == "BIZ_RETRY":
         if state["db_attempts"] < state["max_attempts"]:
@@ -226,10 +219,6 @@ def should_continue(state: MigrationState) -> Literal["generate", "finalize", "v
         return "generate"
 
     return "execute"
-
-def llm_retry_wait_node(state: MigrationState) -> dict:
-    time.sleep(1)
-    return {"llm_retry_count": state["llm_retry_count"] + 1}
 
 def biz_retry_prepare_node(state: MigrationState) -> dict:
     job = state["next_sql_info"]
@@ -253,7 +242,6 @@ workflow.add_node("generate", generate_sql_node)
 workflow.add_node("execute", execute_sql_node)
 workflow.add_node("verify", verify_sql_node)
 workflow.add_node("finalize", finalize_node)
-workflow.add_node("llm_retry_wait", llm_retry_wait_node)
 workflow.add_node("biz_retry_prepare", biz_retry_prepare_node)
 
 workflow.set_entry_point("fetch_ddl")
@@ -274,12 +262,9 @@ workflow.add_conditional_edges(
     should_continue,
     {
         "execute": "execute",
-        "llm_retry_wait": "llm_retry_wait",
         "finalize": "finalize"
     }
 )
-
-workflow.add_edge("llm_retry_wait", "generate")
 
 workflow.add_conditional_edges(
     "execute",

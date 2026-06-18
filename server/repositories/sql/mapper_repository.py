@@ -70,8 +70,7 @@ def get_all_mapping_rules() -> list[MappingRuleItem]:
         FROM {map_table} M
         JOIN {detail_table} D
           ON M.MAP_ID = D.MAP_ID
-        WHERE UPPER(TRIM(M.TARGET_YN)) = 'Y'
-          AND UPPER(TRIM(M.STATUS)) = 'PASS'
+        WHERE UPPER(TRIM(M.STATUS)) = 'PASS'
         ORDER BY M.MAP_ID, D.MAP_DTL
     """
 
@@ -122,7 +121,7 @@ def _get_unready_target_tables(target_tables: set[str]) -> list[str]:
     query = f"""
         SELECT M.FR_TABLE, M.STATUS
         FROM {map_table} M
-        WHERE UPPER(TRIM(M.TARGET_YN)) = 'Y'
+        WHERE UPPER(TRIM(M.STATUS)) = 'PASS'
     """
 
     rows: list[tuple[str, str]] = []
@@ -139,7 +138,7 @@ def _get_unready_target_tables(target_tables: set[str]) -> list[str]:
             for fr_table, status in rows
             if _fr_table_contains_target(fr_table, target_table)
         ]
-        if not matched_statuses or any(status != "PASS" for status in matched_statuses):
+        if not matched_statuses:
             unready.append(target_table)
     return unready
 

@@ -83,6 +83,16 @@ def is_model_fallback_error(message: str) -> bool:
     if any(pattern in text for pattern in server_error_patterns):
         return True
 
+    fallback_transient_patterns = (
+        "connection reset",
+        "temporarily unavailable",
+        "service unavailable",
+        "bad gateway",
+        "502",
+    )
+    if any(pattern in text for pattern in fallback_transient_patterns):
+        return True
+
     fatal_patterns = (
         "model not allow",
         "model_not_allow",
@@ -107,10 +117,6 @@ def is_model_fallback_error(message: str) -> bool:
         "timeout",
         "rate limit",
         "429",
-        "gateway timeout",
-        "504",
-        "connection reset",
-        "temporarily unavailable",
     )
     return any(pattern in text for pattern in fatal_patterns) and not any(
         pattern in text for pattern in transient_patterns

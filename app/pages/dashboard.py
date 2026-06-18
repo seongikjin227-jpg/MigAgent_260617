@@ -326,7 +326,7 @@ _SUPERVISOR_TOOLS = [
             "name": "rerun_migration",
             "description": (
                 "Migration 작업을 즉시 재실행합니다. "
-                "NEXT_MIG_INFO에서 USE_YN='Y', STATUS='URGENT', MIG_SQL=NULL, RETRY_COUNT=0으로 초기화하고 "
+                "NEXT_MIG_INFO에서 USE_YN='Y', STATUS=NULL, MIG_SQL=NULL, RETRY_COUNT=0으로 초기화하고 "
                 "Supervisor를 즉시 깨워 처리하게 합니다. "
                 "사용자가 재실행을 요청할 때 사용하세요."
             ),

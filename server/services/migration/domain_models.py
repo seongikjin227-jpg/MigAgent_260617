@@ -18,7 +18,6 @@ class MappingRule:
     fr_table: str
     to_table: str
     use_yn: str
-    target_yn: str
     priority: int
     prior_map_id: Optional[int] = None
     mig_sql: Optional[str] = None

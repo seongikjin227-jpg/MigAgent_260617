@@ -20,7 +20,6 @@ class MigrationOrchestrator:
             "last_sql": None,
             "db_attempts": 1,
             "max_attempts": BIZ_MAX_ATTEMPTS,
-            "llm_retry_count": 0,
             "current_ddl_sql": None,
             "current_migration_sql": None,
             "current_v_sql": None,
