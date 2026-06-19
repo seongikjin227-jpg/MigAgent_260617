@@ -8,15 +8,18 @@ from pages.dashboard import (
     _load_chat,
     _new_chat,
     _save_chat,
+    _summarize_mig_fail_rows,
     _summarize_sql_fail_rows,
 )
 from utils.db import (
+    get_mig_failure_analysis_rows,
     get_sql_conversion_failure_analysis_rows,
     get_sql_tuning_failure_analysis_rows,
 )
 
 
 _AGENT_OPTIONS = {
+    "DB Migration": "DB_MIGRATION",
     "SQL Conversion": "SQL_CONVERSION",
     "SQL Tuning": "SQL_TUNING",
 }
@@ -44,14 +47,53 @@ def _default_agent_index() -> int:
 
 
 def _load_rows(agent: str, limit: int) -> list[dict]:
+    if agent == "DB_MIGRATION":
+        return get_mig_failure_analysis_rows(limit=limit)
     if agent == "SQL_TUNING":
         return get_sql_tuning_failure_analysis_rows(limit=limit)
     return get_sql_conversion_failure_analysis_rows(limit=limit)
 
 
+def _summarize_rows(rows: list[dict], agent: str) -> dict:
+    if agent == "DB_MIGRATION":
+        return _summarize_mig_fail_rows(rows, stage=agent)
+    return _summarize_sql_fail_rows(rows, stage=agent)
+
+
+def _sample_rows_for_display(agent: str, samples: list[dict]) -> list[dict]:
+    if agent == "DB_MIGRATION":
+        return [
+            {
+                "MAP_ID": item.get("map_id"),
+                "MAP_TYPE": item.get("map_type"),
+                "TO_TABLE": item.get("to_table"),
+                "STAGE": item.get("step_name"),
+                "LOG_TYPE": item.get("log_type"),
+                "CATEGORY": item.get("log_category"),
+                "RETRY": item.get("retry_count"),
+                "UPD_TS": item.get("upd_ts"),
+                "LOG": item.get("log"),
+            }
+            for item in samples
+        ]
+    return [
+        {
+            "SQL_ID": item.get("sql_id"),
+            "SPACE_NM": item.get("space_nm"),
+            "STAGE": item.get("fail_stage"),
+            "LOG_TYPE": item.get("log_type"),
+            "MAP": item.get("map_kind"),
+            "LEN": item.get("length_bucket"),
+            "UPD_TS": item.get("upd_ts"),
+            "LOG": item.get("log"),
+        }
+        for item in samples
+    ]
+
+
 def _render_summary(agent: str, limit: int) -> None:
     rows = _load_rows(agent, limit)
-    summary = _summarize_sql_fail_rows(rows, stage=agent)
+    summary = _summarize_rows(rows, agent)
     total = int(summary.get("total_fail_rows") or 0)
     label = _AGENT_LABELS.get(agent, agent)
 

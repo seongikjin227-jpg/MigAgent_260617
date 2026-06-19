@@ -158,14 +158,27 @@ def get_mig_dtl(map_id: int) -> list[dict]:
 
 
 def get_mig_logs(map_id: int) -> list[dict]:
-    q = """
-        SELECT LOG_ID, MIG_KIND, LOG_TYPE, LOG_LEVEL,
-               STEP_NAME, STATUS, MESSAGE, RETRY_COUNT
-        FROM NEXT_MIG_LOG
-        WHERE MAP_ID = :1
-        ORDER BY LOG_ID ASC
-    """
     try:
+        available_columns = _get_available_columns("NEXT_MIG_LOG")
+        created_at_column = (
+            "TO_CHAR(CREATED_AT, 'YYYY-MM-DD HH24:MI:SS') AS CREATED_AT"
+            if "CREATED_AT" in available_columns
+            else "CAST(NULL AS VARCHAR2(4000)) AS CREATED_AT"
+        )
+        upd_ts_column = (
+            "TO_CHAR(UPD_TS, 'YYYY-MM-DD HH24:MI:SS') AS UPD_TS"
+            if "UPD_TS" in available_columns
+            else "CAST(NULL AS VARCHAR2(4000)) AS UPD_TS"
+        )
+        q = """
+            SELECT LOG_ID, MIG_KIND, LOG_TYPE, LOG_LEVEL,
+                   STEP_NAME, STATUS, MESSAGE, RETRY_COUNT,
+                   {created_at_column},
+                   {upd_ts_column}
+            FROM NEXT_MIG_LOG
+            WHERE MAP_ID = :1
+            ORDER BY LOG_ID ASC
+        """.format(created_at_column=created_at_column, upd_ts_column=upd_ts_column)
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute(q, (map_id,))
@@ -735,6 +748,61 @@ def get_sql_tuning_failure_analysis_rows(limit: int = 200) -> list[dict]:
 
 
 # ── 작업 완료 대기 (챗봇 재실행 후 결과 반환용) ──────────────────────────────────
+
+def get_mig_failure_analysis_rows(limit: int = 200) -> list[dict]:
+    """Return recent DB Migration FAIL rows with the latest migration log."""
+    try:
+        log_columns = _get_available_columns("NEXT_MIG_LOG")
+        created_at_column = "CREATED_AT" if "CREATED_AT" in log_columns else "CAST(NULL AS TIMESTAMP) AS CREATED_AT"
+        upd_ts_column = "UPD_TS" if "UPD_TS" in log_columns else "CAST(NULL AS TIMESTAMP) AS UPD_TS"
+
+        q = f"""
+            SELECT *
+            FROM (
+                SELECT M.MAP_ID,
+                       M.MAP_TYPE,
+                       M.FR_TABLE,
+                       M.TO_TABLE,
+                       M.USE_YN,
+                       M.PRIORITY,
+                       M.PRIOR_MAP_ID,
+                       TO_CHAR(M.STATUS) AS STATUS,
+                       M.BATCH_CNT,
+                       M.ELAPSED_SECONDS,
+                       M.RETRY_COUNT,
+                       TO_CHAR(M.UPD_TS, 'YYYY-MM-DD HH24:MI:SS') AS UPD_TS,
+                       L.LOG_TYPE,
+                       L.LOG_LEVEL,
+                       L.STEP_NAME,
+                       TO_CHAR(L.STATUS) AS LOG_STATUS,
+                       L.MESSAGE AS LOG,
+                       L.RETRY_COUNT AS LOG_RETRY_COUNT,
+                       TO_CHAR(L.LOG_TIME, 'YYYY-MM-DD HH24:MI:SS') AS LOG_TIME
+                FROM {MIG_TABLE} M
+                LEFT JOIN (
+                    SELECT MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT,
+                           COALESCE(UPD_TS, CREATED_AT) AS LOG_TIME
+                    FROM (
+                        SELECT MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT,
+                               {upd_ts_column},
+                               {created_at_column},
+                               ROW_NUMBER() OVER (PARTITION BY MAP_ID ORDER BY LOG_ID DESC) AS RN
+                        FROM NEXT_MIG_LOG
+                    )
+                    WHERE RN = 1
+                ) L ON L.MAP_ID = M.MAP_ID
+                WHERE UPPER(TRIM(M.STATUS)) = 'FAIL'
+                ORDER BY M.UPD_TS DESC NULLS LAST, M.MAP_ID DESC
+            )
+            WHERE ROWNUM <= :1
+        """
+        with get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(q, (int(limit),))
+            return _to_dicts(cur)
+    except Exception:
+        return []
+
 
 _MIG_RUNNING  = {"", "RUNNING", "URGENT", "READY", "PENDING"}
 _SQL_RUNNING  = {"URGENT", "RUNNING", ""}

@@ -23,6 +23,7 @@ from utils.db import (
     reset_sql_tuning_job,
     find_sql_job_spaces,
     get_sql_failure_log,
+    get_mig_failure_analysis_rows,
     get_sql_conversion_failure_analysis_rows,
     get_sql_tuning_failure_analysis_rows,
     poll_mig_job_result,
@@ -183,6 +184,8 @@ def _classify_fail_stage(row: dict, agent: str) -> str:
 
 def _load_fail_analysis_hints(stage: str) -> list[dict]:
     try:
+        if stage == "DB_MIGRATION":
+            return []
         data = json.loads(_FAIL_ANALYSIS_HINTS_FILE.read_text(encoding="utf-8"))
         key = "sql_tuning_hints" if stage == "SQL_TUNING" else "sql_conversion_hints"
         hints = data.get(key, [])
@@ -244,6 +247,87 @@ def _summarize_sql_fail_rows(rows: list[dict], stage: str) -> dict:
     }
 
 
+def _classify_mig_fail_log(log_text: str) -> str:
+    text = (log_text or "").upper()
+    patterns = [
+        ("DEPENDENCY", ["DEPENDENCY", "PRIOR_MAP_ID", "SAME-TARGET", "DEP_CHECK"]),
+        ("LLM_OR_JSON", ["LLM", "MODEL", "JSON", "RESPONSE", "PARSE"]),
+        ("SQL_EXECUTION", ["ORA-", "SQL_EXEC", "EXEC", "DATABASE"]),
+        ("VERIFY", ["VERIFY", "VALIDATION", "COUNT", "MISMATCH"]),
+        ("EMPTY_OR_MISSING_SQL", ["EMPTY", "NULL SQL", "NO SQL", "MISSING"]),
+        ("TIMEOUT_OR_ABORT", ["TIMEOUT", "ABORT", "INTERRUPT"]),
+    ]
+    for label, needles in patterns:
+        if any(needle in text for needle in needles):
+            return label
+    if text.strip():
+        return "OTHER_ERROR"
+    return "NO_LOG"
+
+
+def _summarize_mig_fail_rows(rows: list[dict], stage: str = "DB_MIGRATION") -> dict:
+    map_type_counts: Counter = Counter()
+    step_counts: Counter = Counter()
+    log_type_counts: Counter = Counter()
+    log_category_counts: Counter = Counter()
+    target_counts: Counter = Counter()
+    status_counts: Counter = Counter()
+    samples = []
+
+    for row in rows:
+        map_type = str(row.get("MAP_TYPE") or "UNKNOWN").strip() or "UNKNOWN"
+        step = str(row.get("STEP_NAME") or "NO_STEP").strip() or "NO_STEP"
+        log_type = str(row.get("LOG_TYPE") or "NO_LOG_TYPE").strip() or "NO_LOG_TYPE"
+        target = str(row.get("TO_TABLE") or "UNKNOWN").strip() or "UNKNOWN"
+        log_category = _classify_mig_fail_log(str(row.get("LOG") or ""))
+        map_type_counts[map_type] += 1
+        step_counts[step] += 1
+        log_type_counts[log_type] += 1
+        log_category_counts[log_category] += 1
+        target_counts[target] += 1
+        status_counts[str(row.get("STATUS") or "NULL").strip() or "NULL"] += 1
+        if len(samples) < 30:
+            samples.append({
+                "sql_id": row.get("MAP_ID"),
+                "space_nm": row.get("TO_TABLE"),
+                "map_kind": map_type,
+                "length_bucket": f"retry={row.get('RETRY_COUNT') or 0}, elapsed={row.get('ELAPSED_SECONDS') or 0}s",
+                "fail_stage": step,
+                "map_id": row.get("MAP_ID"),
+                "map_type": map_type,
+                "fr_table": row.get("FR_TABLE"),
+                "to_table": row.get("TO_TABLE"),
+                "status": row.get("STATUS"),
+                "step_name": step,
+                "log_type": log_type,
+                "log_category": log_category,
+                "retry_count": row.get("RETRY_COUNT"),
+                "elapsed_seconds": row.get("ELAPSED_SECONDS"),
+                "upd_ts": row.get("UPD_TS") or row.get("LOG_TIME"),
+                "log": str(row.get("LOG") or "")[:800],
+            })
+
+    return {
+        "stage": stage,
+        "total_fail_rows": len(rows),
+        "map_kind_counts": _top_counter(map_type_counts),
+        "length_counts": _top_counter(target_counts),
+        "map_type_counts": _top_counter(map_type_counts),
+        "target_counts": _top_counter(target_counts),
+        "status_counts": _top_counter(status_counts),
+        "fail_stage_counts": _top_counter(step_counts),
+        "log_type_counts": _top_counter(log_type_counts),
+        "log_category_counts": _top_counter(log_category_counts),
+        "recent_samples": samples,
+        "admin_fail_cause_hints": _load_fail_analysis_hints(stage),
+        "analysis_instruction": (
+            "Summarize DB Migration failures by MAP_TYPE, target table, STEP_NAME, and log category. "
+            "Use the latest NEXT_MIG_LOG message for evidence. "
+            "Infer likely causes in Korean and list concrete next checks."
+        ),
+    }
+
+
 _SUPERVISOR_TOOLS = [
     {
         "type": "function",
@@ -277,6 +361,25 @@ _SUPERVISOR_TOOLS = [
                     "space_nm": {"type": "string", "description": "네임스페이스 (선택, 같은 sql_id가 여러 개일 때 구분)"},
                 },
                 "required": ["sql_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_mig_failures",
+            "description": (
+                "최근 DB Migration FAIL 전체를 종합 분석합니다. "
+                "NEXT_MIG_INFO.STATUS='FAIL'인 row와 최신 NEXT_MIG_LOG를 모아 MAP_TYPE, target table, step, log 유형별 건수와 주요 원인을 추정할 때 사용하세요."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "최근 FAIL 분석 대상 최대 건수. 기본값 200.",
+                    }
+                },
             },
         },
     },
@@ -427,6 +530,15 @@ def _handle_supervisor_tool(name: str, args: dict) -> str:
                     for r in rows
                 ],
             }, ensure_ascii=False, default=str)
+
+        if name == "analyze_mig_failures":
+            limit = int(args.get("limit") or 200)
+            rows = get_mig_failure_analysis_rows(limit=limit)
+            return json.dumps(
+                _summarize_mig_fail_rows(rows, stage="DB_MIGRATION"),
+                ensure_ascii=False,
+                default=str,
+            )
 
         if name == "analyze_sql_conversion_failures":
             limit = int(args.get("limit") or 200)
@@ -1137,8 +1249,11 @@ def _status_card(title: str, summary: dict, extra_html: str = ""):
             f'<div class="status-box-value {cls}">{v}</div>'
             f'</div>'
         )
-        if (k == "FAIL" or str(k).startswith("FAIL-")) and int(v or 0) > 0 and ("SQL" in title or "Tuning" in title):
-            agent = "SQL_CONVERSION" if "SQL" in title else "SQL_TUNING"
+        if (k == "FAIL" or str(k).startswith("FAIL-")) and int(v or 0) > 0 and ("SQL" in title or "Tuning" in title or "Mig" in title):
+            if "Mig" in title:
+                agent = "DB_MIGRATION"
+            else:
+                agent = "SQL_CONVERSION" if "SQL" in title else "SQL_TUNING"
             query = urlencode({"page": "🔎 Fail Analysis", "agent": agent})
             box_html = (
                 f'<a class="status-box-link" href="?{query}">'

@@ -120,7 +120,6 @@ def update_job_status(map_id: int, status: str, elapsed_seconds: int = 0, retry_
     query = f"""
         UPDATE {map_table}
         SET STATUS = :1,
-            USE_YN = 'N',
             UPD_TS = CURRENT_TIMESTAMP,
             ELAPSED_SECONDS = :2,
             RETRY_COUNT = :3
