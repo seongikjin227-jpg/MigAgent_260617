@@ -112,11 +112,11 @@ def main():
                 """
                 INSERT INTO NEXT_MIG_INFO
                     (MAP_ID, MAP_TYPE, FR_TABLE, TO_TABLE,
-                     USE_YN, PRIORITY, STATUS,
+                     USE_YN, TRUNC_YN, PRIORITY, STATUS,
                      CREATED_AT, UPD_TS)
                 VALUES
                     (:1, :2, :3, :4,
-                     'Y', :5, NULL,
+                     'Y', 'N', :5, NULL,
                      SYSDATE, SYSDATE)
                 """,
                 (map_id, map_type, fr_table, to_table, priority),

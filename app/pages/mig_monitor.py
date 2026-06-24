@@ -4,7 +4,7 @@ import streamlit as st
 import pandas as pd
 from utils.db import get_mig_jobs, get_mig_dtl, get_mig_logs
 
-_COLS_TABLE = ["MAP_ID", "STATUS", "FR_TABLE", "TO_TABLE", "USE_YN",
+_COLS_TABLE = ["MAP_ID", "STATUS", "FR_TABLE", "TO_TABLE", "USE_YN", "TRUNC_YN",
                "PRIORITY", "PRIOR_MAP_ID", "RETRY_COUNT", "ELAPSED_SECONDS", "UPD_TS"]
 
 _MIG_DETAIL_OPTIONS = {

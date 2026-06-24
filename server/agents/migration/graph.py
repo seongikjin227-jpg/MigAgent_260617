@@ -140,6 +140,10 @@ def generate_sql_node(state: MigrationState) -> dict:
 
 def execute_sql_node(state: MigrationState) -> dict:
     try:
+        job = state["next_sql_info"]
+        if str(getattr(job, "trunc_yn", "") or "").strip().upper() == "Y":
+            logger.info(f"[Graph:TRUNCATE] map_id={job.map_id} | TRUNC_YN=Y, target={job.to_table}")
+            truncate_table(job.to_table)
         execute_migration(state["current_migration_sql"])
         return {"status": "EXECUTED", "error_type": None}
     except DBSqlError as e:
@@ -226,9 +230,6 @@ def biz_retry_prepare_node(state: MigrationState) -> dict:
     step_name = "SQL_EXEC" if "DBSqlError" in state["last_error"] else "VERIFY"
 
     log_business_history(job.map_id, "ROW_ERROR", "WARN", step_name, "FAIL", state["last_error"], state["db_attempts"], mig_kind)
-
-    if is_first_job_for_target(job.map_id, job.to_table, job.priority):
-        truncate_table(job.to_table)
 
     time.sleep(1)
     return {"db_attempts": state["db_attempts"] + 1, "error_type": None, "status": None}

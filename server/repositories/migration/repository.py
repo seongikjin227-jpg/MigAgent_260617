@@ -44,7 +44,7 @@ def get_pending_jobs() -> list[MappingRule]:
         )
         SELECT
             R.MAP_ID, R.MAP_TYPE, R.FR_TABLE, R.TO_TABLE,
-            R.USE_YN, R.PRIORITY,
+            R.USE_YN, R.TRUNC_YN, R.PRIORITY,
             R.MIG_SQL, R.VERIFY_SQL, R.STATUS, R.CORRECT_SQL, R.USER_EDITED,
             R.BATCH_CNT, R.ELAPSED_SECONDS, R.RETRY_COUNT,
             R.CREATED_AT, R.UPD_TS, R.CONDITION, R.PRIOR_MAP_ID,
@@ -70,29 +70,30 @@ def get_pending_jobs() -> list[MappingRule]:
                         fr_table=ensure_str(row[2]),
                         to_table=ensure_str(row[3]),
                         use_yn=ensure_str(row[4]),
-                        priority=row[5],
-                        prior_map_id=row[17],
-                        mig_sql=ensure_str(row[6]),
-                        verify_sql=ensure_str(row[7]),
-                        status=ensure_str(row[8]),
-                        correct_sql=ensure_str(row[9]),
-                        user_edited=ensure_str(row[10]),
-                        batch_cnt=row[11] if row[11] is not None else 0,
-                        elapsed_seconds=row[12] if row[12] is not None else 0,
-                        retry_count=row[13] if row[13] is not None else 0,
-                        created_at=row[14],
-                        upd_ts=row[15],
-                        condition=ensure_str(row[16]),
+                        trunc_yn=ensure_str(row[5]),
+                        priority=row[6],
+                        prior_map_id=row[18],
+                        mig_sql=ensure_str(row[7]),
+                        verify_sql=ensure_str(row[8]),
+                        status=ensure_str(row[9]),
+                        correct_sql=ensure_str(row[10]),
+                        user_edited=ensure_str(row[11]),
+                        batch_cnt=row[12] if row[12] is not None else 0,
+                        elapsed_seconds=row[13] if row[13] is not None else 0,
+                        retry_count=row[14] if row[14] is not None else 0,
+                        created_at=row[15],
+                        upd_ts=row[16],
+                        condition=ensure_str(row[17]),
                         details=[]
                     )
                     jobs[map_id] = rule
 
-                if row[18] is not None:
+                if row[19] is not None:
                     detail = MappingDetail(
-                        map_dtl=row[18],
+                        map_dtl=row[19],
                         map_id=map_id,
-                        fr_col=ensure_str(row[19]),
-                        to_col=ensure_str(row[20])
+                        fr_col=ensure_str(row[20]),
+                        to_col=ensure_str(row[21])
                     )
                     jobs[map_id].details.append(detail)
 

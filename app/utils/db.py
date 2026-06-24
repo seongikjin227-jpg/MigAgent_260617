@@ -119,7 +119,7 @@ def _optional_column_expr(column_name: str, available_columns: set[str], data_ty
 def get_mig_jobs() -> list[dict]:
     q = f"""
         SELECT MAP_ID, MAP_TYPE, FR_TABLE, TO_TABLE,
-               USE_YN, PRIORITY, STATUS,
+               USE_YN, TRUNC_YN, PRIORITY, STATUS,
                PRIOR_MAP_ID, MIG_SQL, VERIFY_SQL,
                BATCH_CNT, ELAPSED_SECONDS, RETRY_COUNT,
                TO_CHAR(CREATED_AT) AS CREATED_AT,
@@ -764,6 +764,7 @@ def get_mig_failure_analysis_rows(limit: int = 200) -> list[dict]:
                        M.FR_TABLE,
                        M.TO_TABLE,
                        M.USE_YN,
+                       M.TRUNC_YN,
                        M.PRIORITY,
                        M.PRIOR_MAP_ID,
                        TO_CHAR(M.STATUS) AS STATUS,
