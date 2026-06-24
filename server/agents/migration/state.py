@@ -20,6 +20,7 @@ class MigrationState(TypedDict):
     current_migration_sql: Optional[str]
     current_v_sql: Optional[str]
     error_type: Optional[str]
+    failure_status: Optional[str]
 
     status: str
     elapsed_time: int

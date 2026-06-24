@@ -30,7 +30,22 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
         return default
 
 
-BIZ_MAX_ATTEMPTS = _env_int("DB_MIGRATION_MAX_ATTEMPTS", 10, minimum=1)
+BIZ_MAX_RETRIES = _env_int("DB_MIGRATION_MAX_ATTEMPTS", 10, minimum=0)
+BIZ_MAX_ATTEMPTS = BIZ_MAX_RETRIES + 1
+
+def _retry_count(state: MigrationState) -> int:
+    return max(0, int(state.get("db_attempts", 1) or 1) - 1)
+
+def _current_generate_sql(state: MigrationState) -> str:
+    return state.get("current_migration_sql") or state.get("last_sql") or ""
+
+def _failure_status(state: MigrationState) -> str:
+    explicit_status = state.get("failure_status")
+    if explicit_status:
+        return explicit_status
+    if state.get("status") == "EXECUTED":
+        return "FAIL-TEST"
+    return "FAIL"
 
 def _extract_table_names(fr_table: str) -> list:
     """FR_TABLE 표현식에서 실제 테이블명만 추출합니다."""
@@ -102,7 +117,7 @@ def check_dependency_node(state: MigrationState) -> dict:
 
 def generate_sql_node(state: MigrationState) -> dict:
     job = state["next_sql_info"]
-    job.retry_count = state["db_attempts"] - 1
+    job.retry_count = _retry_count(state)
 
     attempt_msg = f"{state['db_attempts']}"
 
@@ -124,6 +139,17 @@ def generate_sql_node(state: MigrationState) -> dict:
             return {"error_type": "LLM_RETRY", "last_error": err_msg}
 
         log_generated_sql(job.map_id, migration_sql, v_sql)
+        log_business_history(
+            job.map_id,
+            "GENERATE_SQL",
+            "INFO",
+            "GENERATE",
+            "PASS",
+            "Migration SQL generated",
+            _retry_count(state),
+            os.getenv("MIG_KIND", "DB_MIG"),
+            generate_sql=migration_sql,
+        )
 
         return {
             "last_sql": migration_sql,
@@ -148,7 +174,7 @@ def execute_sql_node(state: MigrationState) -> dict:
         return {"status": "EXECUTED", "error_type": None}
     except DBSqlError as e:
         logger.error(f"[Graph:EXEC_FAIL] {str(e)}")
-        return {"error_type": "BIZ_RETRY", "last_error": str(e)}
+        return {"error_type": "BIZ_RETRY", "failure_status": "FAIL-INSERT", "last_error": str(e)}
 
 def verify_sql_node(state: MigrationState) -> dict:
     v_sql = state.get("current_v_sql")
@@ -170,22 +196,26 @@ def finalize_node(state: MigrationState) -> dict:
     mig_kind = os.getenv("MIG_KIND", "DB_MIG")
 
     if state["status"] == "PASS":
-        update_job_status(job.map_id, "PASS", elapsed, state["db_attempts"])
-        log_business_history(job.map_id, "INFO", "INFO", "VERIFY", "PASS", "Migration Success", state["db_attempts"], mig_kind)
+        retry_count = _retry_count(state)
+        update_job_status(job.map_id, "PASS", elapsed, retry_count)
+        log_business_history(job.map_id, "INFO", "INFO", "VERIFY", "PASS", "Migration Success", retry_count, mig_kind, generate_sql=_current_generate_sql(state))
         logger.info(f"[Graph:FINISH] map_id={job.map_id} | >>> 성공 <<<")
         return {"elapsed_time": elapsed, "status": "PASS"}
     elif state["status"] == "SKIP":
-        update_job_status(job.map_id, "SKIP", elapsed, state["db_attempts"])
-        log_business_history(job.map_id, "JOB_SKIP", "WARN", "DEP_CHECK", "SKIP", state["last_error"], state["db_attempts"], mig_kind)
+        retry_count = _retry_count(state)
+        update_job_status(job.map_id, "SKIP", elapsed, retry_count)
+        log_business_history(job.map_id, "JOB_SKIP", "WARN", "DEP_CHECK", "SKIP", state["last_error"], retry_count, mig_kind, generate_sql=_current_generate_sql(state))
         logger.warning(f"[Graph:FINISH] map_id={job.map_id} | >>> SKIP (의존성 실패) <<<")
         return {"elapsed_time": elapsed, "status": "SKIP"}
     elif state["status"] == "WAITING":
-        log_business_history(job.map_id, "JOB_WAIT", "INFO", "DEP_CHECK", "WAITING", state["last_error"], state["db_attempts"], mig_kind)
+        log_business_history(job.map_id, "JOB_WAIT", "INFO", "DEP_CHECK", "WAITING", state["last_error"], _retry_count(state), mig_kind, generate_sql=_current_generate_sql(state))
         logger.info(f"[Graph:FINISH] map_id={job.map_id} | >>> WAITING (의존성 대기) <<<")
         return {"elapsed_time": elapsed, "status": "WAITING"}
     else:
-        update_job_status(job.map_id, "FAIL", elapsed, state["db_attempts"])
-        log_business_history(job.map_id, "JOB_FAIL", "ERROR", "FINAL", "FAIL", "Max Attempts Reached", state["db_attempts"], mig_kind)
+        retry_count = _retry_count(state)
+        failure_status = _failure_status(state)
+        update_job_status(job.map_id, failure_status, elapsed, retry_count)
+        log_business_history(job.map_id, "JOB_FAIL", "ERROR", "FINAL", failure_status, "Max Attempts Reached", retry_count, mig_kind, generate_sql=_current_generate_sql(state))
         logger.error(f"[Graph:FINISH] map_id={job.map_id} | >>> 실패 <<<")
         return {"elapsed_time": elapsed, "status": "FAIL"}
 
@@ -211,6 +241,16 @@ def should_continue(state: MigrationState) -> Literal["generate", "finalize", "v
         raise BatchAbortError(f"LLM 호출 실패: {state['last_error']}")
 
     if error_type == "BIZ_RETRY":
+        failure_status = _failure_status(state)
+        job = state["next_sql_info"]
+        if (
+            failure_status == "FAIL-INSERT"
+            and str(getattr(job, "trunc_yn", "") or "").strip().upper() != "Y"
+        ):
+            logger.warning(
+                f"[Graph:RETRY_SKIP] map_id={job.map_id} | FAIL-INSERT with TRUNC_YN!=Y. Finalize without retry."
+            )
+            return "finalize"
         if state["db_attempts"] < state["max_attempts"]:
             return "generate"
         else:
@@ -227,12 +267,20 @@ def should_continue(state: MigrationState) -> Literal["generate", "finalize", "v
 def biz_retry_prepare_node(state: MigrationState) -> dict:
     job = state["next_sql_info"]
     mig_kind = os.getenv("MIG_KIND", "DB_MIG")
-    step_name = "SQL_EXEC" if "DBSqlError" in state["last_error"] else "VERIFY"
+    failure_status = _failure_status(state)
+    step_name = "SQL_EXEC" if failure_status == "FAIL-INSERT" else "VERIFY"
 
-    log_business_history(job.map_id, "ROW_ERROR", "WARN", step_name, "FAIL", state["last_error"], state["db_attempts"], mig_kind)
+    log_business_history(job.map_id, "ROW_ERROR", "WARN", step_name, failure_status, state["last_error"], _retry_count(state), mig_kind, generate_sql=_current_generate_sql(state))
 
     time.sleep(1)
-    return {"db_attempts": state["db_attempts"] + 1, "error_type": None, "status": None}
+    if failure_status == "FAIL-TEST":
+        return {
+            "db_attempts": state["db_attempts"] + 1,
+            "error_type": None,
+            "status": "EXECUTED",
+            "failure_status": "FAIL-TEST",
+        }
+    return {"db_attempts": state["db_attempts"] + 1, "error_type": None, "status": None, "failure_status": None}
 
 # Graph Construction
 workflow = StateGraph(MigrationState)

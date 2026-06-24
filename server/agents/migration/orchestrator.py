@@ -24,6 +24,7 @@ class MigrationOrchestrator:
             "current_migration_sql": None,
             "current_v_sql": None,
             "error_type": None,
+            "failure_status": None,
             "status": "RUNNING",
             "elapsed_time": 0,
             "job_start_time": time.time()

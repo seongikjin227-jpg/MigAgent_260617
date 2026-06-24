@@ -26,7 +26,8 @@ CONVERSION_PASS_STATUSES = ("PASS", "CONVERSION-PASS")
 TUNING_PASS_STATUSES = ("PASS", "TUNING-PASS", "TUNING_PASS", "PASS_NON_SELECT")
 CONVERSION_FAIL_STATUSES = ("FAIL", "FAIL-TOBE", "FAIL-BIND", "FAIL-TEST")
 TUNING_FAIL_STATUSES = ("FAIL", "FAIL-TUNED", "FAIL-BIND", "FAIL-TEST")
-FAIL_STATUSES = ("FAIL", "FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-TEST")
+MIG_FAIL_STATUSES = ("FAIL", "FAIL-INSERT", "FAIL-TEST")
+FAIL_STATUSES = ("FAIL", "FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-TEST", "FAIL-INSERT")
 
 _thick_done = False
 _AVAILABLE_COLUMNS_CACHE: dict[str, set[str]] = {}
@@ -170,15 +171,21 @@ def get_mig_logs(map_id: int) -> list[dict]:
             if "UPD_TS" in available_columns
             else "CAST(NULL AS VARCHAR2(4000)) AS UPD_TS"
         )
+        generate_sql_column = _optional_column_expr("GENERATE_SQL", available_columns, data_type="CLOB")
         q = """
             SELECT LOG_ID, MIG_KIND, LOG_TYPE, LOG_LEVEL,
                    STEP_NAME, STATUS, MESSAGE, RETRY_COUNT,
+                   {generate_sql_column},
                    {created_at_column},
                    {upd_ts_column}
             FROM NEXT_MIG_LOG
             WHERE MAP_ID = :1
             ORDER BY LOG_ID ASC
-        """.format(created_at_column=created_at_column, upd_ts_column=upd_ts_column)
+        """.format(
+            generate_sql_column=generate_sql_column,
+            created_at_column=created_at_column,
+            upd_ts_column=upd_ts_column,
+        )
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute(q, (map_id,))
@@ -193,7 +200,7 @@ def get_recent_fails(limit: int = 10) -> list[dict]:
             SELECT MAP_ID, FR_TABLE, TO_TABLE, STATUS,
                    TO_CHAR(UPD_TS) AS UPD_TS
             FROM {MIG_TABLE}
-            WHERE UPPER(NVL(STATUS,'X')) = 'FAIL'
+            WHERE UPPER(NVL(STATUS,'X')) IN ({_sql_in(MIG_FAIL_STATUSES)})
             ORDER BY UPD_TS DESC NULLS LAST
         ) WHERE ROWNUM <= {limit}
     """
@@ -755,6 +762,7 @@ def get_mig_failure_analysis_rows(limit: int = 200) -> list[dict]:
         log_columns = _get_available_columns("NEXT_MIG_LOG")
         created_at_column = "CREATED_AT" if "CREATED_AT" in log_columns else "CAST(NULL AS TIMESTAMP) AS CREATED_AT"
         upd_ts_column = "UPD_TS" if "UPD_TS" in log_columns else "CAST(NULL AS TIMESTAMP) AS UPD_TS"
+        generate_sql_column = "GENERATE_SQL" if "GENERATE_SQL" in log_columns else "CAST(NULL AS CLOB) AS GENERATE_SQL"
 
         q = f"""
             SELECT *
@@ -777,14 +785,15 @@ def get_mig_failure_analysis_rows(limit: int = 200) -> list[dict]:
                        L.STEP_NAME,
                        TO_CHAR(L.STATUS) AS LOG_STATUS,
                        L.MESSAGE AS LOG,
+                       L.GENERATE_SQL,
                        L.RETRY_COUNT AS LOG_RETRY_COUNT,
                        TO_CHAR(L.LOG_TIME, 'YYYY-MM-DD HH24:MI:SS') AS LOG_TIME
                 FROM {MIG_TABLE} M
                 LEFT JOIN (
-                    SELECT MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT,
+                    SELECT MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, GENERATE_SQL, RETRY_COUNT,
                            COALESCE(UPD_TS, CREATED_AT) AS LOG_TIME
                     FROM (
-                        SELECT MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT,
+                        SELECT MAP_ID, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, {generate_sql_column}, RETRY_COUNT,
                                {upd_ts_column},
                                {created_at_column},
                                ROW_NUMBER() OVER (PARTITION BY MAP_ID ORDER BY LOG_ID DESC) AS RN
@@ -792,7 +801,7 @@ def get_mig_failure_analysis_rows(limit: int = 200) -> list[dict]:
                     )
                     WHERE RN = 1
                 ) L ON L.MAP_ID = M.MAP_ID
-                WHERE UPPER(TRIM(M.STATUS)) = 'FAIL'
+                WHERE UPPER(TRIM(M.STATUS)) IN ({_sql_in(MIG_FAIL_STATUSES)})
                 ORDER BY M.UPD_TS DESC NULLS LAST, M.MAP_ID DESC
             )
             WHERE ROWNUM <= :1

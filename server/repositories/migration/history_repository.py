@@ -72,10 +72,21 @@ def log_generated_sql(map_id: int, migration_sql: str, verification_sql: str):
     except Exception as e:
         logger.error(f"[HistoryRepo] SQL 생성 내역 기록 중 오류: {e}")
 
-def log_business_history(map_id: int, log_type: str, log_level: str, step_name: str, status: str, message: str, retry_count: int = 0, mig_kind: str = "DB_MIG"):
+def log_business_history(
+    map_id: int,
+    log_type: str,
+    log_level: str,
+    step_name: str,
+    status: str,
+    message: str,
+    retry_count: int = 0,
+    mig_kind: str = "DB_MIG",
+    generate_sql: str | None = None,
+):
     msg_str = str(message)
     if len(msg_str) > 4000:
         msg_str = msg_str[:3996] + "..."
+    sql_str = _to_text(generate_sql)
 
     logger.info(f"[HistoryRepo] map_id={map_id} | Business Log 저장 -> [{step_name}][{status}] : {msg_str[:50]}")
 
@@ -83,21 +94,27 @@ def log_business_history(map_id: int, log_type: str, log_level: str, step_name: 
     log_sequence = get_migration_log_sequence()
 
     try:
+        available_columns = _table_columns(log_table)
         timestamp_columns = [
             column
             for column in ("CREATED_AT", "UPD_TS")
-            if column in _table_columns(log_table)
+            if column in available_columns
         ]
         timestamp_column_sql = "".join(f", {column}" for column in timestamp_columns)
         timestamp_value_sql = "".join(", CURRENT_TIMESTAMP" for _ in timestamp_columns)
+        generate_sql_column_sql = ", GENERATE_SQL" if "GENERATE_SQL" in available_columns else ""
+        generate_sql_value_sql = ", :9" if "GENERATE_SQL" in available_columns else ""
+        params = [map_id, mig_kind, log_type, log_level, step_name, status, msg_str, retry_count]
+        if "GENERATE_SQL" in available_columns:
+            params.append(sql_str)
         query = f"""
             INSERT INTO {log_table} (
-                LOG_ID, MAP_ID, MIG_KIND, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT{timestamp_column_sql}
-            ) VALUES ({log_sequence}.NEXTVAL, :1, :2, :3, :4, :5, :6, :7, :8{timestamp_value_sql})
+                LOG_ID, MAP_ID, MIG_KIND, LOG_TYPE, LOG_LEVEL, STEP_NAME, STATUS, MESSAGE, RETRY_COUNT{generate_sql_column_sql}{timestamp_column_sql}
+            ) VALUES ({log_sequence}.NEXTVAL, :1, :2, :3, :4, :5, :6, :7, :8{generate_sql_value_sql}{timestamp_value_sql})
         """
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(query, (map_id, mig_kind, log_type, log_level, step_name, status, msg_str, retry_count))
+            cursor.execute(query, params)
             conn.commit()
     except Exception as e:
         logger.error(f"[HistoryRepo] 비즈니스 이력 기록 중 오류: {e}")

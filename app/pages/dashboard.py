@@ -148,7 +148,7 @@ def _classify_sql_fail_log(log_text: str) -> str:
 def _classify_fail_stage(row: dict, agent: str) -> str:
     status_key = "TUNED_TEST" if "TUNING" in (agent or "").upper() else "STATUS"
     explicit_status = str(row.get(status_key) or "").strip().upper()
-    if explicit_status in {"FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-TEST"}:
+    if explicit_status in {"FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-INSERT", "FAIL-TEST"}:
         return explicit_status
 
     text = " ".join(
@@ -370,7 +370,7 @@ _SUPERVISOR_TOOLS = [
             "name": "analyze_mig_failures",
             "description": (
                 "최근 DB Migration FAIL 전체를 종합 분석합니다. "
-                "NEXT_MIG_INFO.STATUS='FAIL'인 row와 최신 NEXT_MIG_LOG를 모아 MAP_TYPE, target table, step, log 유형별 건수와 주요 원인을 추정할 때 사용하세요."
+                "NEXT_MIG_INFO.STATUS가 DB Migration FAIL 계열(FAIL/FAIL-INSERT/FAIL-TEST)인 row와 최신 NEXT_MIG_LOG를 모아 MAP_TYPE, target table, step, log 유형별 건수와 주요 원인을 추정할 때 사용하세요."
             ),
             "parameters": {
                 "type": "object",
@@ -508,6 +508,7 @@ def _handle_supervisor_tool(name: str, args: dict) -> str:
                         "level":   lg.get("LOG_LEVEL"),
                         "status":  lg.get("STATUS"),
                         "message": str(lg.get("MESSAGE") or "")[:400],
+                        "generated_sql_head": str(lg.get("GENERATE_SQL") or "")[:600],
                     }
                     for lg in logs[-20:]
                 ],
@@ -1015,6 +1016,7 @@ _ICON = {
     "FAIL-TOBE": "❌",
     "FAIL-TUNED": "❌",
     "FAIL-BIND": "❌",
+    "FAIL-INSERT": "❌",
     "FAIL-TEST": "❌",
     "RUNNING": "🔄",
     "READY": "🔵",
@@ -1033,6 +1035,7 @@ _CLR = {
     "FAIL-TOBE": "badge-fail",
     "FAIL-TUNED": "badge-fail",
     "FAIL-BIND": "badge-fail",
+    "FAIL-INSERT": "badge-fail",
     "FAIL-TEST": "badge-fail",
 }
 _STATUS_ORDER = [
@@ -1043,6 +1046,7 @@ _STATUS_ORDER = [
     "FAIL-TOBE",
     "FAIL-TUNED",
     "FAIL-BIND",
+    "FAIL-INSERT",
     "FAIL-TEST",
     "FAIL",
     "RUNNING",
@@ -1067,6 +1071,9 @@ def _sum_excluding(normalized: dict[str, int], excluded: set[str]) -> int:
 def _is_tuning_title(title: str) -> bool:
     return "TUNING" in str(title or "").upper()
 
+def _is_mig_title(title: str) -> bool:
+    return "MIG" in str(title or "").upper()
+
 def _dashboard_status(status, title: str = "") -> str | None:
     normalized = _norm_status(status)
     if normalized == "NA":
@@ -1075,7 +1082,7 @@ def _dashboard_status(status, title: str = "") -> str | None:
         return "RUNNING"
     if _is_tuning_title(title) and normalized == "NULL":
         return "SQL Conversion 단계"
-    if normalized in {"FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-TEST"}:
+    if normalized in {"FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-INSERT", "FAIL-TEST"}:
         return normalized
     if normalized == "FAIL":
         return "FAIL"
@@ -1096,7 +1103,11 @@ def _dashboard_status(status, title: str = "") -> str | None:
     if normalized == "CONVERSION-PASS":
         return "CONVERSION-PASS"
     if normalized == "PASS":
-        return "TUNING-PASS" if _is_tuning_title(title) else "CONVERSION-PASS"
+        if _is_tuning_title(title):
+            return "TUNING-PASS"
+        if _is_mig_title(title):
+            return "PASS"
+        return "CONVERSION-PASS"
     return normalized
 
 def _rate_values(title: str, normalized: dict[str, int]) -> tuple[int, int, int, int]:
