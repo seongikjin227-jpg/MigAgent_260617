@@ -167,7 +167,7 @@ def generate_sql_node(state: MigrationState) -> dict:
 def execute_sql_node(state: MigrationState) -> dict:
     try:
         job = state["next_sql_info"]
-        if str(getattr(job, "trunc_yn", "") or "").strip().upper() == "Y":
+        if str(getattr(job, "trunc_yn", "") or "").strip().upper() == "Y" and _retry_count(state) == 0:
             logger.info(f"[Graph:TRUNCATE] map_id={job.map_id} | TRUNC_YN=Y, target={job.to_table}")
             truncate_table(job.to_table)
         execute_migration(state["current_migration_sql"])
@@ -241,16 +241,6 @@ def should_continue(state: MigrationState) -> Literal["generate", "finalize", "v
         raise BatchAbortError(f"LLM 호출 실패: {state['last_error']}")
 
     if error_type == "BIZ_RETRY":
-        failure_status = _failure_status(state)
-        job = state["next_sql_info"]
-        if (
-            failure_status == "FAIL-INSERT"
-            and str(getattr(job, "trunc_yn", "") or "").strip().upper() != "Y"
-        ):
-            logger.warning(
-                f"[Graph:RETRY_SKIP] map_id={job.map_id} | FAIL-INSERT with TRUNC_YN!=Y. Finalize without retry."
-            )
-            return "finalize"
         if state["db_attempts"] < state["max_attempts"]:
             return "generate"
         else:
