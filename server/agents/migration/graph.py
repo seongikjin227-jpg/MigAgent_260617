@@ -47,6 +47,9 @@ def _failure_status(state: MigrationState) -> str:
         return "FAIL-TEST"
     return "FAIL"
 
+def _clear_error() -> str:
+    return ""
+
 def _extract_table_names(fr_table: str) -> list:
     """FR_TABLE 표현식에서 실제 테이블명만 추출합니다."""
     parts = re.split(
@@ -113,7 +116,7 @@ def check_dependency_node(state: MigrationState) -> dict:
         }
 
     increment_batch_count(job.map_id)
-    return {"error_type": None}
+    return {"error_type": _clear_error()}
 
 def generate_sql_node(state: MigrationState) -> dict:
     job = state["next_sql_info"]
@@ -156,7 +159,8 @@ def generate_sql_node(state: MigrationState) -> dict:
             "current_ddl_sql": ddl_sql,
             "current_migration_sql": migration_sql,
             "current_v_sql": v_sql,
-            "error_type": None
+            "error_type": _clear_error(),
+            "failure_status": "",
         }
     except (LLMAuthenticationError, LLMTokenLimitError, LLMInvalidRequestError) as e:
         logger.error(f"[Graph:LLM_FATAL] {str(e)}")
@@ -173,12 +177,12 @@ def execute_sql_node(state: MigrationState) -> dict:
                 truncate_table(job.to_table)
             except DBSqlError as e:
                 logger.error(f"[Graph:TRUNCATE_FAIL] {str(e)}")
-                return {"error_type": "BIZ_RETRY", "failure_status": "FAIL-TRUNCATE", "last_error": str(e)}
+                return {"status": "", "error_type": "BIZ_RETRY", "failure_status": "FAIL-TRUNCATE", "last_error": str(e)}
         execute_migration(state["current_migration_sql"])
-        return {"status": "EXECUTED", "error_type": None}
+        return {"status": "EXECUTED", "error_type": _clear_error(), "failure_status": ""}
     except DBSqlError as e:
         logger.error(f"[Graph:EXEC_FAIL] {str(e)}")
-        return {"error_type": "BIZ_RETRY", "failure_status": "FAIL-INSERT", "last_error": str(e)}
+        return {"status": "", "error_type": "BIZ_RETRY", "failure_status": "FAIL-INSERT", "last_error": str(e)}
 
 def verify_sql_node(state: MigrationState) -> dict:
     v_sql = state.get("current_v_sql")
@@ -190,7 +194,7 @@ def verify_sql_node(state: MigrationState) -> dict:
         is_valid, v_msg = execute_verification(v_sql)
         if not is_valid:
             return {"error_type": "BIZ_RETRY", "last_error": f"데이터 불일치: {v_msg}"}
-        return {"status": "PASS", "error_type": None}
+        return {"status": "PASS", "error_type": _clear_error(), "failure_status": ""}
     except (VerificationFailError, DBSqlError) as e:
         return {"error_type": "BIZ_RETRY", "last_error": str(e)}
 
@@ -218,8 +222,9 @@ def finalize_node(state: MigrationState) -> dict:
     else:
         retry_count = _retry_count(state)
         failure_status = _failure_status(state)
+        final_message = f"Max Attempts Reached after {failure_status}: {state.get('last_error') or ''}".strip()
         update_job_status(job.map_id, failure_status, elapsed, retry_count)
-        log_business_history(job.map_id, "JOB_FAIL", "ERROR", "FINAL", failure_status, "Max Attempts Reached", retry_count, mig_kind, generate_sql=_current_generate_sql(state))
+        log_business_history(job.map_id, "JOB_FAIL", "ERROR", "FINAL", failure_status, final_message, retry_count, mig_kind, generate_sql=_current_generate_sql(state))
         logger.error(f"[Graph:FINISH] map_id={job.map_id} | >>> 실패 <<<")
         return {"elapsed_time": elapsed, "status": "FAIL"}
 
@@ -270,11 +275,21 @@ def biz_retry_prepare_node(state: MigrationState) -> dict:
     if failure_status == "FAIL-TEST":
         return {
             "db_attempts": state["db_attempts"] + 1,
-            "error_type": None,
+            "error_type": _clear_error(),
             "status": "EXECUTED",
             "failure_status": "FAIL-TEST",
         }
-    return {"db_attempts": state["db_attempts"] + 1, "error_type": None, "status": None, "failure_status": None}
+    return {
+        "db_attempts": state["db_attempts"] + 1,
+        "error_type": _clear_error(),
+        "status": "",
+        "failure_status": failure_status,
+    }
+
+def after_retry_prepare(state: MigrationState) -> Literal["generate", "execute"]:
+    if state.get("failure_status") == "FAIL-TRUNCATE":
+        return "execute"
+    return "generate"
 
 # Graph Construction
 workflow = StateGraph(MigrationState)
@@ -329,7 +344,14 @@ workflow.add_conditional_edges(
     }
 )
 
-workflow.add_edge("biz_retry_prepare", "generate")
+workflow.add_conditional_edges(
+    "biz_retry_prepare",
+    after_retry_prepare,
+    {
+        "generate": "generate",
+        "execute": "execute",
+    }
+)
 workflow.add_edge("finalize", END)
 
 migration_graph = workflow.compile()
