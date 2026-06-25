@@ -148,7 +148,7 @@ def _classify_sql_fail_log(log_text: str) -> str:
 def _classify_fail_stage(row: dict, agent: str) -> str:
     status_key = "TUNED_TEST" if "TUNING" in (agent or "").upper() else "STATUS"
     explicit_status = str(row.get(status_key) or "").strip().upper()
-    if explicit_status in {"FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-INSERT", "FAIL-TEST"}:
+    if explicit_status in {"FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-TRUNCATE", "FAIL-INSERT", "FAIL-TEST"}:
         return explicit_status
 
     text = " ".join(
@@ -370,7 +370,7 @@ _SUPERVISOR_TOOLS = [
             "name": "analyze_mig_failures",
             "description": (
                 "최근 DB Migration FAIL 전체를 종합 분석합니다. "
-                "NEXT_MIG_INFO.STATUS가 DB Migration FAIL 계열(FAIL/FAIL-INSERT/FAIL-TEST)인 row와 최신 NEXT_MIG_LOG를 모아 MAP_TYPE, target table, step, log 유형별 건수와 주요 원인을 추정할 때 사용하세요."
+                "NEXT_MIG_INFO.STATUS가 DB Migration FAIL 계열(FAIL/FAIL-TRUNCATE/FAIL-INSERT/FAIL-TEST)인 row와 최신 NEXT_MIG_LOG를 모아 MAP_TYPE, target table, step, log 유형별 건수와 주요 원인을 추정할 때 사용하세요."
             ),
             "parameters": {
                 "type": "object",
@@ -1016,6 +1016,7 @@ _ICON = {
     "FAIL-TOBE": "❌",
     "FAIL-TUNED": "❌",
     "FAIL-BIND": "❌",
+    "FAIL-TRUNCATE": "❌",
     "FAIL-INSERT": "❌",
     "FAIL-TEST": "❌",
     "RUNNING": "🔄",
@@ -1035,6 +1036,7 @@ _CLR = {
     "FAIL-TOBE": "badge-fail",
     "FAIL-TUNED": "badge-fail",
     "FAIL-BIND": "badge-fail",
+    "FAIL-TRUNCATE": "badge-fail",
     "FAIL-INSERT": "badge-fail",
     "FAIL-TEST": "badge-fail",
 }
@@ -1046,6 +1048,7 @@ _STATUS_ORDER = [
     "FAIL-TOBE",
     "FAIL-TUNED",
     "FAIL-BIND",
+    "FAIL-TRUNCATE",
     "FAIL-INSERT",
     "FAIL-TEST",
     "FAIL",
@@ -1082,7 +1085,7 @@ def _dashboard_status(status, title: str = "") -> str | None:
         return "RUNNING"
     if _is_tuning_title(title) and normalized == "NULL":
         return "SQL Conversion 단계"
-    if normalized in {"FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-INSERT", "FAIL-TEST"}:
+    if normalized in {"FAIL-TOBE", "FAIL-TUNED", "FAIL-BIND", "FAIL-TRUNCATE", "FAIL-INSERT", "FAIL-TEST"}:
         return normalized
     if normalized == "FAIL":
         return "FAIL"

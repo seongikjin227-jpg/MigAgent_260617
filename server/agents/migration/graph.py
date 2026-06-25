@@ -169,7 +169,11 @@ def execute_sql_node(state: MigrationState) -> dict:
         job = state["next_sql_info"]
         if str(getattr(job, "trunc_yn", "") or "").strip().upper() == "Y":
             logger.info(f"[Graph:TRUNCATE] map_id={job.map_id} | TRUNC_YN=Y, target={job.to_table}")
-            truncate_table(job.to_table)
+            try:
+                truncate_table(job.to_table)
+            except DBSqlError as e:
+                logger.error(f"[Graph:TRUNCATE_FAIL] {str(e)}")
+                return {"error_type": "BIZ_RETRY", "failure_status": "FAIL-TRUNCATE", "last_error": str(e)}
         execute_migration(state["current_migration_sql"])
         return {"status": "EXECUTED", "error_type": None}
     except DBSqlError as e:
@@ -258,7 +262,7 @@ def biz_retry_prepare_node(state: MigrationState) -> dict:
     job = state["next_sql_info"]
     mig_kind = os.getenv("MIG_KIND", "DB_MIG")
     failure_status = _failure_status(state)
-    step_name = "SQL_EXEC" if failure_status == "FAIL-INSERT" else "VERIFY"
+    step_name = "TRUNCATE" if failure_status == "FAIL-TRUNCATE" else ("SQL_EXEC" if failure_status == "FAIL-INSERT" else "VERIFY")
 
     log_business_history(job.map_id, "ROW_ERROR", "WARN", step_name, failure_status, state["last_error"], _retry_count(state), mig_kind, generate_sql=_current_generate_sql(state))
 
@@ -301,6 +305,7 @@ workflow.add_conditional_edges(
     should_continue,
     {
         "execute": "execute",
+        "verify": "verify",
         "finalize": "finalize"
     }
 )
