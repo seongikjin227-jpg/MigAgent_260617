@@ -167,7 +167,7 @@ def generate_sql_node(state: MigrationState) -> dict:
 def execute_sql_node(state: MigrationState) -> dict:
     try:
         job = state["next_sql_info"]
-        if str(getattr(job, "trunc_yn", "") or "").strip().upper() == "Y" and _retry_count(state) == 0:
+        if str(getattr(job, "trunc_yn", "") or "").strip().upper() == "Y":
             logger.info(f"[Graph:TRUNCATE] map_id={job.map_id} | TRUNC_YN=Y, target={job.to_table}")
             truncate_table(job.to_table)
         execute_migration(state["current_migration_sql"])
