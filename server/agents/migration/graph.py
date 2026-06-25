@@ -39,6 +39,12 @@ def _retry_count(state: MigrationState) -> int:
 def _current_generate_sql(state: MigrationState) -> str:
     return state.get("current_migration_sql") or state.get("last_sql") or ""
 
+def _stage_sql(state: MigrationState, failure_status: str | None = None) -> str:
+    status = failure_status or _failure_status(state)
+    if status == "FAIL-TEST":
+        return state.get("current_v_sql") or ""
+    return _current_generate_sql(state)
+
 def _failure_status(state: MigrationState) -> str:
     explicit_status = state.get("failure_status")
     if explicit_status:
@@ -224,7 +230,7 @@ def finalize_node(state: MigrationState) -> dict:
         failure_status = _failure_status(state)
         final_message = f"Max Attempts Reached after {failure_status}: {state.get('last_error') or ''}".strip()
         update_job_status(job.map_id, failure_status, elapsed, retry_count)
-        log_business_history(job.map_id, "JOB_FAIL", "ERROR", "FINAL", failure_status, final_message, retry_count, mig_kind, generate_sql=_current_generate_sql(state))
+        log_business_history(job.map_id, "JOB_FAIL", "ERROR", "FINAL", failure_status, final_message, retry_count, mig_kind, generate_sql=_stage_sql(state, failure_status))
         logger.error(f"[Graph:FINISH] map_id={job.map_id} | >>> 실패 <<<")
         return {"elapsed_time": elapsed, "status": "FAIL"}
 
@@ -269,7 +275,7 @@ def biz_retry_prepare_node(state: MigrationState) -> dict:
     failure_status = _failure_status(state)
     step_name = "TRUNCATE" if failure_status == "FAIL-TRUNCATE" else ("SQL_EXEC" if failure_status == "FAIL-INSERT" else "VERIFY")
 
-    log_business_history(job.map_id, "ROW_ERROR", "WARN", step_name, failure_status, state["last_error"], _retry_count(state), mig_kind, generate_sql=_current_generate_sql(state))
+    log_business_history(job.map_id, "ROW_ERROR", "WARN", step_name, failure_status, state["last_error"], _retry_count(state), mig_kind, generate_sql=_stage_sql(state, failure_status))
 
     time.sleep(1)
     if failure_status == "FAIL-TEST":

@@ -1,4 +1,3 @@
-import os
 import oracledb
 
 from server.agents.migration.sql_utils import clean_sql_statement, split_sql_script
@@ -7,21 +6,12 @@ from server.core.exceptions import DBSqlError
 from server.core.logger import logger
 
 
-def _env_int(name: str, default: int, minimum: int = 0) -> int:
-    try:
-        return max(minimum, int(os.getenv(name, str(default))))
-    except ValueError:
-        return default
-
-
 def truncate_table(table_name: str):
     """Reset target table data before a migration attempt."""
-    ddl_lock_timeout = _env_int("DB_MIGRATION_TRUNCATE_LOCK_TIMEOUT", 30, minimum=0)
     logger.info(f"[Executor] TRUNCATE TABLE: {table_name}")
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(f"ALTER SESSION SET DDL_LOCK_TIMEOUT = {ddl_lock_timeout}")
             cursor.execute(f"TRUNCATE TABLE {table_name}")
             conn.commit()
             logger.info(f"[Executor] TRUNCATE completed: {table_name}")

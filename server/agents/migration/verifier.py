@@ -10,11 +10,11 @@ def _read_lob_value(value):
 
 
 def execute_verification(sql: str) -> tuple[bool, str]:
-    """양 DB의 정합성을 대조하는 검증 SQL 실행"""
+    """Execute DB migration verification SQL."""
     if not sql.strip():
         return True, "No verification SQL provided"
 
-    logger.debug(f"[Verifier] 실제 검증 쿼리 실행 시작: {sql[:50]}...")
+    logger.debug(f"[Verifier] Start verification query: {sql[:50]}...")
 
     try:
         statements = split_sql_script(sql)
@@ -48,9 +48,5 @@ def execute_verification(sql: str) -> tuple[bool, str]:
 
     except Exception as e:
         error_message = str(e)
-        if "ORA-00932" in error_message or "inconsistent datatypes" in error_message.lower():
-            logger.warning(f"[Verifier] ORA-00932 검증 오류 스킵: {error_message}")
-            return True, f"Verification skipped due to ORA-00932: {error_message}"
-
-        logger.error(f"[Verifier] 검증 쿼리 실행 에러: {error_message}")
+        logger.error(f"[Verifier] Verification query error: {error_message}")
         return False, f"Verification Query Error: {error_message}"
