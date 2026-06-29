@@ -25,10 +25,24 @@ from server.core.llm_fallback import (
     model_candidates,
     set_active_model,
 )
-from server.tools.context import _stop_event, init_callbacks
+from server.tools.context import (
+    _stop_event,
+    formatting_registry,
+    init_callbacks,
+    mig_registry,
+    sql_registry,
+    tuning_registry,
+)
 from server.tools.cycle import flush_cycle_metrics, request_wait
 from server.tools.migration import run_data_migration
-from server.tools.poll import build_poll_jobs_tool
+from server.tools.poll import (
+    MIGRATION_JOB_BATCH_SIZE,
+    SQL_CONVERSION_JOB_BATCH_SIZE,
+    SQL_FORMATTING_JOB_BATCH_SIZE,
+    SQL_TUNING_JOB_BATCH_SIZE,
+    _agent_flags,
+    build_poll_jobs_tool,
+)
 from server.tools.sql_conversion import run_sql_conversion
 from server.tools.sql_formatting import run_sql_formatting
 from server.tools.sql_tuning import run_sql_tuning
@@ -58,6 +72,48 @@ def build_supervisor_graph(
     format_process_job,
     logger,
 ):
+    def refresh_jobs_after_run() -> None:
+        run_mig, run_sql, run_tuning, run_fmt = _agent_flags()
+        mig_jobs, sql_jobs, tuning_jobs, formatting_jobs = [], [], [], []
+
+        try:
+            if run_mig:
+                mig_jobs = get_migration_jobs()
+        except Exception as exc:
+            logger.error(f"[refresh_jobs] DataMigration query error: {exc}")
+
+        try:
+            if run_sql:
+                sql_jobs = get_sql_jobs()
+            if run_tuning:
+                tuning_jobs = get_tuning_jobs()
+            if run_fmt:
+                formatting_jobs = get_formatting_jobs()
+        except Exception as exc:
+            logger.error(f"[refresh_jobs] SQL/Tuning/Formatting query error: {exc}")
+
+        mig_registry.clear()
+        sql_registry.clear()
+        tuning_registry.clear()
+        formatting_registry.clear()
+
+        for job in mig_jobs[:MIGRATION_JOB_BATCH_SIZE]:
+            mig_registry[job.map_id] = job
+        for job in sql_jobs[:SQL_CONVERSION_JOB_BATCH_SIZE]:
+            sql_registry[str(job.row_id)] = job
+        for job in tuning_jobs[:SQL_TUNING_JOB_BATCH_SIZE]:
+            tuning_registry[str(job.row_id)] = job
+        for job in formatting_jobs[:SQL_FORMATTING_JOB_BATCH_SIZE]:
+            formatting_registry[str(job.row_id)] = job
+
+        logger.info(
+            "[refresh_jobs] refreshed after job "
+            f"(Mig={len(mig_registry)}/{len(mig_jobs)}, "
+            f"Sql={len(sql_registry)}/{len(sql_jobs)}, "
+            f"Tuning={len(tuning_registry)}/{len(tuning_jobs)}, "
+            f"Formatting={len(formatting_registry)}/{len(formatting_jobs)})"
+        )
+
     init_callbacks(
         mig_inc=mig_increment_batch,
         mig_proc=mig_process_job,
@@ -65,6 +121,7 @@ def build_supervisor_graph(
         sql_proc=sql_process_job,
         tune_proc=tune_process_job,
         format_proc=format_process_job,
+        refresh_jobs=refresh_jobs_after_run,
         logger=logger,
     )
 

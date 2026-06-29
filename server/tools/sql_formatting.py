@@ -2,7 +2,12 @@ import time
 
 from langchain_core.tools import tool
 
-from server.tools.context import callbacks, formatting_registry, record_agent_run
+from server.tools.context import (
+    callbacks,
+    formatting_registry,
+    record_agent_run,
+    refresh_jobs_after_tool,
+)
 
 
 @tool
@@ -28,5 +33,7 @@ def run_sql_formatting(row_ids: list) -> str:
             if logger:
                 logger.error(f"[SqlFormattingTool] row_id={row_id} error: {exc}")
             results.append(f"row_id={row_id} failed: {exc}")
+        finally:
+            refresh_jobs_after_tool()
 
     return "SqlFormatting result: " + " | ".join(results)

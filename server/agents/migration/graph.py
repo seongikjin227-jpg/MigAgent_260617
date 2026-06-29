@@ -56,6 +56,9 @@ def _failure_status(state: MigrationState) -> str:
 def _clear_error() -> str:
     return ""
 
+def _is_user_edited(job) -> bool:
+    return str(getattr(job, "user_edited", "") or "").strip().upper() == "Y"
+
 def _extract_table_names(fr_table: str) -> list:
     """FR_TABLE 표현식에서 실제 테이블명만 추출합니다."""
     parts = re.split(
@@ -129,6 +132,43 @@ def generate_sql_node(state: MigrationState) -> dict:
     job.retry_count = _retry_count(state)
 
     attempt_msg = f"{state['db_attempts']}"
+
+    if _is_user_edited(job):
+        migration_sql = (getattr(job, "mig_sql", None) or "").strip()
+        v_sql = (getattr(job, "verify_sql", None) or "").strip()
+        if not migration_sql:
+            err_msg = "USER_EDITED=Y but MIG_SQL is empty."
+            logger.error(f"[Graph:USER_EDITED_EMPTY] map_id={job.map_id} | {err_msg}")
+            return {
+                "status": "",
+                "error_type": "BIZ_RETRY",
+                "failure_status": "FAIL-INSERT",
+                "last_error": err_msg,
+                "last_sql": "",
+                "current_migration_sql": "",
+                "current_v_sql": v_sql,
+            }
+
+        logger.info(f"[Graph:USER_EDITED] map_id={job.map_id} | using existing MIG_SQL/VERIFY_SQL")
+        log_business_history(
+            job.map_id,
+            "USE_USER_SQL",
+            "INFO",
+            "GENERATE",
+            "PASS",
+            "USER_EDITED=Y; existing MIG_SQL/VERIFY_SQL will be used without LLM generation",
+            _retry_count(state),
+            os.getenv("MIG_KIND", "DB_MIG"),
+            generate_sql=migration_sql,
+        )
+        return {
+            "last_sql": migration_sql,
+            "current_ddl_sql": "",
+            "current_migration_sql": migration_sql,
+            "current_v_sql": v_sql,
+            "error_type": _clear_error(),
+            "failure_status": "",
+        }
 
     logger.info(f"[Graph:LLM] Attempt {attempt_msg} | SQL 생성 요청")
     try:
@@ -327,6 +367,7 @@ workflow.add_conditional_edges(
     {
         "execute": "execute",
         "verify": "verify",
+        "generate": "biz_retry_prepare",
         "finalize": "finalize"
     }
 )

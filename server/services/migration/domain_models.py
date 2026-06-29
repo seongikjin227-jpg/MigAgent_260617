@@ -24,7 +24,6 @@ class MappingRule:
     mig_sql: Optional[str] = None
     verify_sql: Optional[str] = None
     status: Optional[str] = None
-    correct_sql: Optional[str] = None
     user_edited: Optional[str] = None
     condition: Optional[str] = None
     batch_cnt: int = 0

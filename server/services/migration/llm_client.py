@@ -154,9 +154,6 @@ def generate_sqls(NEXT_SQL_INFO, last_error=None, last_sql=None, source_ddl=None
     ※ INSERT INTO 절의 컬럼명과 타입은 위 타겟 DDL 정보를 반드시 따르십시오.
 """
 
-    if NEXT_SQL_INFO.correct_sql:
-        logger.info(f"[LLM] map_id={NEXT_SQL_INFO.map_id} | 인간 전문가의 정답 SQL을 프롬프트에 반영합니다.")
-
     system_anthropic, system_openai, prompt = build_migration_prompt(
         from_table=from_table,
         to_table=to_table,
@@ -164,7 +161,6 @@ def generate_sqls(NEXT_SQL_INFO, last_error=None, last_sql=None, source_ddl=None
         ddl_info_block=ddl_info_block,
         is_append=is_append,
         condition=condition,
-        correct_sql=NEXT_SQL_INFO.correct_sql or None,
         last_error=last_error,
         last_sql=last_sql,
     )

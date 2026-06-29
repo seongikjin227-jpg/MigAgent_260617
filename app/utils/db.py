@@ -118,10 +118,16 @@ def _optional_column_expr(column_name: str, available_columns: set[str], data_ty
 # ── Mig ──────────────────────────────────────────────────────────────────────
 
 def get_mig_jobs() -> list[dict]:
+    available_columns = _get_available_columns(MIG_TABLE)
+    if "USER_EDITED" in available_columns:
+        user_edit_column = "USER_EDITED"
+    else:
+        user_edit_column = "CAST(NULL AS VARCHAR2(1)) AS USER_EDITED"
     q = f"""
         SELECT MAP_ID, MAP_TYPE, FR_TABLE, TO_TABLE,
                USE_YN, TRUNC_YN, PRIORITY, STATUS,
                PRIOR_MAP_ID, MIG_SQL, VERIFY_SQL,
+               {user_edit_column},
                BATCH_CNT, ELAPSED_SECONDS, RETRY_COUNT,
                TO_CHAR(CREATED_AT) AS CREATED_AT,
                TO_CHAR(UPD_TS) AS UPD_TS
@@ -543,13 +549,27 @@ def get_recent_sql_stage_logs(limit: int = 100) -> list[dict]:
 # ── Re-run / 재실행 DB 초기화 ────────────────────────────────────────────────
 
 def reset_mig_job_for_rerun(map_id: int) -> bool:
+    """Reset a migration job so it can be run again."""
+    available_columns = _get_available_columns(MIG_TABLE)
+    user_edit_column = "USER_EDITED" if "USER_EDITED" in available_columns else None
+    mig_sql_reset = (
+        f"MIG_SQL = CASE WHEN UPPER(TRIM(NVL({user_edit_column}, 'N'))) = 'Y' THEN MIG_SQL ELSE NULL END,"
+        if user_edit_column
+        else "MIG_SQL = NULL,"
+    )
+    verify_sql_reset = (
+        f"VERIFY_SQL = CASE WHEN UPPER(TRIM(NVL({user_edit_column}, 'N'))) = 'Y' THEN VERIFY_SQL ELSE NULL END,"
+        if user_edit_column
+        else "VERIFY_SQL = NULL,"
+    )
     """Migration 작업을 재실행 가능 상태로 초기화합니다."""
     q = f"""
         UPDATE {MIG_TABLE}
         SET USE_YN = 'Y',
             STATUS = NULL,
             RETRY_COUNT = 0,
-            MIG_SQL = NULL,
+            {mig_sql_reset}
+            {verify_sql_reset}
             UPD_TS = CURRENT_TIMESTAMP
         WHERE MAP_ID = :1
     """

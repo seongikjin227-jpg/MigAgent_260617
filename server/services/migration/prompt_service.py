@@ -17,7 +17,6 @@ def build_migration_prompt(
     ddl_info_block: str,
     is_append: bool,
     condition: str = '',
-    correct_sql: str | None = None,
     last_error: str | None = None,
     last_sql: str | None = None,
 ) -> tuple[str, str, str]:
@@ -38,9 +37,6 @@ def build_migration_prompt(
         verification_instruction=verification_instruction,
         condition=condition,
     )
-
-    if correct_sql:
-        prompt += t["correct_sql_suffix"].format(correct_sql=correct_sql)
 
     if last_error:
         prompt += t["error_suffix"].format(last_sql=last_sql, last_error=last_error)

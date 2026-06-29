@@ -52,6 +52,13 @@ def get_registries():
     return mig_registry, sql_registry, tuning_registry, formatting_registry
 
 
+def refresh_jobs_after_tool() -> None:
+    """Refresh job registries after a tool finishes one job."""
+    refresh_jobs = callbacks.get("refresh_jobs")
+    if refresh_jobs:
+        refresh_jobs()
+
+
 def start_batch_metrics(batch_no: int) -> None:
     """Supervisor 프로세스 실행 1회를 식별하는 batch 번호를 등록합니다."""
     batch_metrics.clear()
