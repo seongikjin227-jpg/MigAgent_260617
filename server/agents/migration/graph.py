@@ -18,7 +18,11 @@ from server.repositories.migration.repository import (
     is_first_job_for_target,
     increment_batch_count,
 )
-from server.repositories.migration.history_repository import log_generated_sql, log_business_history
+from server.repositories.migration.history_repository import (
+    log_generated_sql,
+    log_generated_verify_sql,
+    log_business_history,
+)
 from server.core.db_migration import fetch_table_ddl, qualify_fr_table, qualify_to_table
 from server.agents.migration.state import MigrationState
 
@@ -59,6 +63,9 @@ def _clear_error() -> str:
 def _is_user_edited(job) -> bool:
     return str(getattr(job, "user_edited", "") or "").strip().upper() == "Y"
 
+def _user_edited_value(job) -> str:
+    return str(getattr(job, "user_edited", "") or "N").strip().upper() or "N"
+
 def _extract_table_names(fr_table: str) -> list:
     """FR_TABLE 표현식에서 실제 테이블명만 추출합니다."""
     parts = re.split(
@@ -95,6 +102,12 @@ def fetch_ddl_node(state: MigrationState) -> dict:
 
 def check_dependency_node(state: MigrationState) -> dict:
     job = state["next_sql_info"]
+    user_edited = _user_edited_value(job)
+    mode = "USE_EXISTING_SQL" if user_edited == "Y" else "LLM_GENERATE_SQL"
+    logger.info(
+        f"[Graph:JOB_OPTION] map_id={job.map_id} | "
+        f"PRIOR_MAP_ID={job.prior_map_id} | USER_EDITED={user_edited} | mode={mode}"
+    )
     dep_status = check_dependencies(job.map_id, job.prior_map_id)
 
     if dep_status != "READY":
@@ -172,6 +185,13 @@ def generate_sql_node(state: MigrationState) -> dict:
 
     logger.info(f"[Graph:LLM] Attempt {attempt_msg} | SQL 생성 요청")
     try:
+        is_verify_retry = state.get("failure_status") == "FAIL-TEST"
+        existing_migration_sql = (
+            state.get("current_migration_sql")
+            or state.get("last_sql")
+            or getattr(job, "mig_sql", None)
+            or ""
+        )
         is_append = not is_first_job_for_target(job.map_id, job.to_table, job.priority)
         ddl_sql, migration_sql, v_sql = generate_sqls(
             job,
@@ -182,22 +202,35 @@ def generate_sql_node(state: MigrationState) -> dict:
             is_append=is_append
         )
 
-        if not migration_sql or not migration_sql.strip():
+        if is_verify_retry and not v_sql:
+            err_msg = "LLM returned an empty verification_sql."
+            logger.error(f"[Graph:VERIFY_SQL_EMPTY] {err_msg}")
+            return {"error_type": "LLM_RETRY", "last_error": err_msg}
+
+        if not is_verify_retry and (not migration_sql or not migration_sql.strip()):
             err_msg = "LLM returned an empty migration_sql."
             logger.error(f"[Graph:LLM_EMPTY] {err_msg}")
             return {"error_type": "LLM_RETRY", "last_error": err_msg}
 
-        log_generated_sql(job.map_id, migration_sql, v_sql)
+        if is_verify_retry:
+            migration_sql = existing_migration_sql
+            log_generated_verify_sql(job.map_id, v_sql)
+            generated_log_sql = v_sql
+            generated_message = "Verification SQL regenerated"
+        else:
+            log_generated_sql(job.map_id, migration_sql, v_sql)
+            generated_log_sql = migration_sql
+            generated_message = "Migration SQL generated"
         log_business_history(
             job.map_id,
             "GENERATE_SQL",
             "INFO",
             "GENERATE",
             "PASS",
-            "Migration SQL generated",
+            generated_message,
             _retry_count(state),
             os.getenv("MIG_KIND", "DB_MIG"),
-            generate_sql=migration_sql,
+            generate_sql=generated_log_sql,
         )
 
         return {
@@ -205,6 +238,7 @@ def generate_sql_node(state: MigrationState) -> dict:
             "current_ddl_sql": ddl_sql,
             "current_migration_sql": migration_sql,
             "current_v_sql": v_sql,
+            "status": "EXECUTED" if is_verify_retry else "",
             "error_type": _clear_error(),
             "failure_status": "",
         }
@@ -231,18 +265,48 @@ def execute_sql_node(state: MigrationState) -> dict:
         return {"status": "", "error_type": "BIZ_RETRY", "failure_status": "FAIL-INSERT", "last_error": str(e)}
 
 def verify_sql_node(state: MigrationState) -> dict:
+    job = state["next_sql_info"]
     v_sql = state.get("current_v_sql")
     if not v_sql:
-        return {"status": "PASS"}
+        return {
+            "status": "",
+            "error_type": "BIZ_RETRY",
+            "failure_status": "FAIL-TEST",
+            "last_error": "VERIFY_SQL is empty.",
+            "last_sql": "",
+        }
 
     try:
         logger.info(f"[Graph:VERIFY] 데이터 정합성 검증 시작")
+        log_business_history(
+            job.map_id,
+            "VERIFY_SQL",
+            "INFO",
+            "VERIFY",
+            "RUN",
+            "Verification SQL execution started",
+            _retry_count(state),
+            os.getenv("MIG_KIND", "DB_MIG"),
+            generate_sql=v_sql,
+        )
         is_valid, v_msg = execute_verification(v_sql)
         if not is_valid:
-            return {"error_type": "BIZ_RETRY", "last_error": f"데이터 불일치: {v_msg}"}
+            return {
+                "status": "",
+                "error_type": "BIZ_RETRY",
+                "failure_status": "FAIL-TEST",
+                "last_error": f"Verification failed: {v_msg}",
+                "last_sql": v_sql,
+            }
         return {"status": "PASS", "error_type": _clear_error(), "failure_status": ""}
     except (VerificationFailError, DBSqlError) as e:
-        return {"error_type": "BIZ_RETRY", "last_error": str(e)}
+        return {
+            "status": "",
+            "error_type": "BIZ_RETRY",
+            "failure_status": "FAIL-TEST",
+            "last_error": str(e),
+            "last_sql": v_sql,
+        }
 
 def finalize_node(state: MigrationState) -> dict:
     job = state["next_sql_info"]
@@ -252,7 +316,7 @@ def finalize_node(state: MigrationState) -> dict:
     if state["status"] == "PASS":
         retry_count = _retry_count(state)
         update_job_status(job.map_id, "PASS", elapsed, retry_count)
-        log_business_history(job.map_id, "INFO", "INFO", "VERIFY", "PASS", "Migration Success", retry_count, mig_kind, generate_sql=_current_generate_sql(state))
+        log_business_history(job.map_id, "INFO", "INFO", "VERIFY", "PASS", "Migration Success", retry_count, mig_kind, generate_sql=state.get("current_v_sql") or "")
         logger.info(f"[Graph:FINISH] map_id={job.map_id} | >>> 성공 <<<")
         return {"elapsed_time": elapsed, "status": "PASS"}
     elif state["status"] == "SKIP":

@@ -61,6 +61,24 @@ def _agent_flags() -> tuple[bool, bool, bool, bool]:
     return mig_only, sql_only, tune_only, fmt_only
 
 
+def priority_gate_jobs(
+    mig_jobs: list,
+    sql_jobs: list,
+    tuning_jobs: list,
+    formatting_jobs: list,
+) -> tuple[list, list, list, list]:
+    """Keep only the highest-priority non-empty job type for a normal cycle."""
+    if mig_jobs:
+        return mig_jobs, [], [], []
+    if sql_jobs:
+        return [], sql_jobs, [], []
+    if tuning_jobs:
+        return [], [], tuning_jobs, []
+    if formatting_jobs:
+        return [], [], [], formatting_jobs
+    return [], [], [], []
+
+
 def build_poll_jobs_tool(
     get_migration_jobs: Callable,
     get_sql_jobs: Callable,
@@ -131,6 +149,11 @@ def build_poll_jobs_tool(
                 formatting_jobs = []
             if logger:
                 logger.info(f"[poll_jobs] 챗봇 재실행 요청 → type={t}, target={target}")
+
+        if not target:
+            mig_jobs, sql_jobs, tuning_jobs, formatting_jobs = priority_gate_jobs(
+                mig_jobs, sql_jobs, tuning_jobs, formatting_jobs
+            )
 
         mig_registry.clear()
         sql_registry.clear()

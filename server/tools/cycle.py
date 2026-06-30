@@ -13,6 +13,7 @@ from server.tools.context import (
     _stop_event,
     callbacks,
     finish_cycle_metrics,
+    was_job_executed,
 )
 
 _WAIT_STEP = 0.2
@@ -27,6 +28,8 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
 
 
 _MAX_WAIT_SECONDS = _env_int("SUPERVISOR_MAX_WAIT_SECONDS", 300)
+_JOB_WAIT_SECONDS = _env_int("SUPERVISOR_JOB_WAIT_SECONDS", 1)
+_IDLE_WAIT_SECONDS = _env_int("SUPERVISOR_IDLE_WAIT_SECONDS", 30)
 
 
 @tool
@@ -44,7 +47,14 @@ def request_wait(seconds: int) -> str:
     작업이 있었을 때는 5, 없었을 때는 30, 오류가 많을 때는 10을 권장합니다.
     반드시 사이클의 마지막 도구로 호출하세요."""
     logger = callbacks.get("logger")
-    seconds = max(1, min(int(seconds), _MAX_WAIT_SECONDS))
+    requested_seconds = int(seconds)
+    configured_seconds = _JOB_WAIT_SECONDS if was_job_executed() else _IDLE_WAIT_SECONDS
+    seconds = max(1, min(configured_seconds or requested_seconds, _MAX_WAIT_SECONDS))
+    if logger and seconds != requested_seconds:
+        logger.info(
+            f"[request_wait] requested={requested_seconds}s, configured={seconds}s "
+            f"(job_executed={was_job_executed()})"
+        )
 
     # pause 파일 감지 — 파일이 있는 동안 대기
     paused_logged = False

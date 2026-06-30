@@ -4,6 +4,7 @@ from langchain_core.tools import tool
 
 from server.tools.context import (
     callbacks,
+    mark_job_executed,
     record_agent_run,
     refresh_jobs_after_tool,
     tuning_registry,
@@ -24,6 +25,7 @@ def run_sql_tuning(row_ids: list) -> str:
 
         started = time.perf_counter()
         try:
+            mark_job_executed()
             callbacks["sql_inc"](row_id)
             final_status = callbacks["tune_proc"](job)
             record_agent_run("SQL_TUNING", time.perf_counter() - started, final_status)
@@ -35,5 +37,6 @@ def run_sql_tuning(row_ids: list) -> str:
             results.append(f"row_id={row_id} failed: {exc}")
         finally:
             refresh_jobs_after_tool()
+        break
 
     return "SqlTuning result: " + " | ".join(results)

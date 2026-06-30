@@ -4,6 +4,7 @@ from langchain_core.tools import tool
 
 from server.tools.context import (
     callbacks,
+    mark_job_executed,
     mig_registry,
     record_agent_run,
     refresh_jobs_after_tool,
@@ -21,6 +22,7 @@ def run_data_migration(map_id: int) -> str:
 
     started = time.perf_counter()
     try:
+        mark_job_executed()
         final_status = callbacks["mig_proc"](job)
         record_agent_run("DB_MIGRATION", time.perf_counter() - started, final_status)
         if logger:

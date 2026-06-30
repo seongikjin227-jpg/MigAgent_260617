@@ -41,9 +41,7 @@ TUNING_MAX_ITER      = int(os.getenv("TOBE_SQL_TUNING_MAX_ITERATIONS", "1"))
 BIND_SQL_PRETUNING_ENABLED = os.getenv("BIND_SQL_PRETUNING_ENABLED", "false").strip().lower() == "true"
 BIND_SQL_PRETUNING_MIN_LENGTH = int(os.getenv("BIND_SQL_PRETUNING_MIN_LENGTH", "8000"))
 
-# ── Planner ──────────────────────────────────────────────────────────────────
-PLANNER_ENABLED          = os.getenv("PLANNER_ENABLED", "true").lower() == "true"
-PLANNER_MAX_MIG_PER_CYCLE = int(os.getenv("PLANNER_MAX_MIG_PER_CYCLE", "5"))
+# ── Supervisor ────────────────────────────────────────────────────────────────
 SUPERVISOR_RECURSION_LIMIT = int(os.getenv("SUPERVISOR_RECURSION_LIMIT", "10000"))
 
 # ── Runtime ───────────────────────────────────────────────────────────────────

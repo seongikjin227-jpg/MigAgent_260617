@@ -4,6 +4,7 @@ from langchain_core.tools import tool
 
 from server.tools.context import (
     callbacks,
+    mark_job_executed,
     record_agent_run,
     refresh_jobs_after_tool,
     sql_registry,
@@ -22,6 +23,7 @@ def run_sql_conversion(row_id: str) -> str:
 
     started = time.perf_counter()
     try:
+        mark_job_executed()
         callbacks["sql_inc"](row_key)
         final_status = callbacks["sql_proc"](job)
         record_agent_run("SQL_MIGRATION", time.perf_counter() - started, final_status)

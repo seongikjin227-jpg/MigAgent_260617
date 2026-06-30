@@ -32,6 +32,7 @@ from server.tools.context import (
     mig_registry,
     sql_registry,
     tuning_registry,
+    was_job_executed,
 )
 from server.tools.cycle import flush_cycle_metrics, request_wait
 from server.tools.migration import run_data_migration
@@ -42,10 +43,23 @@ from server.tools.poll import (
     SQL_TUNING_JOB_BATCH_SIZE,
     _agent_flags,
     build_poll_jobs_tool,
+    priority_gate_jobs,
 )
 from server.tools.sql_conversion import run_sql_conversion
 from server.tools.sql_formatting import run_sql_formatting
 from server.tools.sql_tuning import run_sql_tuning
+
+_JOB_TOOL_NAMES = {
+    "run_data_migration",
+    "run_sql_conversion",
+    "run_sql_tuning",
+    "run_sql_formatting",
+}
+
+def _tool_call_name(call) -> str | None:
+    if isinstance(call, dict):
+        return call.get("name")
+    return getattr(call, "name", None)
 
 
 def _build_llm(model_name: str) -> ChatOpenAI:
@@ -91,6 +105,10 @@ def build_supervisor_graph(
                 formatting_jobs = get_formatting_jobs()
         except Exception as exc:
             logger.error(f"[refresh_jobs] SQL/Tuning/Formatting query error: {exc}")
+
+        mig_jobs, sql_jobs, tuning_jobs, formatting_jobs = priority_gate_jobs(
+            mig_jobs, sql_jobs, tuning_jobs, formatting_jobs
+        )
 
         mig_registry.clear()
         sql_registry.clear()
@@ -179,7 +197,13 @@ def build_supervisor_graph(
         if _stop_event.is_set() or state.get("stop_requested"):
             return END
         last = state["messages"][-1]
-        if getattr(last, "tool_calls", None):
+        tool_calls = getattr(last, "tool_calls", None)
+        if tool_calls:
+            if was_job_executed():
+                tool_names = {_tool_call_name(call) for call in tool_calls}
+                if tool_names & _JOB_TOOL_NAMES:
+                    logger.info("[Supervisor] Job already executed in this cycle; ending before another job tool.")
+                    return END
             return "tools"
         return END
 

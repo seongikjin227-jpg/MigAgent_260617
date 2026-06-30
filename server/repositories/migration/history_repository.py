@@ -72,6 +72,26 @@ def log_generated_sql(map_id: int, migration_sql: str, verification_sql: str):
     except Exception as e:
         logger.error(f"[HistoryRepo] SQL 생성 내역 기록 중 오류: {e}")
 
+def log_generated_verify_sql(map_id: int, verification_sql: str):
+    safe_v_sql = _to_text(verification_sql)
+    logger.info(f"[HistoryRepo] map_id={map_id} | Verification SQL DB update")
+
+    map_table = get_mapping_rule_table()
+    query = f"""
+        UPDATE {map_table}
+        SET VERIFY_SQL = :1, UPD_TS = CURRENT_TIMESTAMP
+        WHERE MAP_ID = :2
+    """
+
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (safe_v_sql, map_id))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"[HistoryRepo] Verification SQL update failed: {e}")
+
+
 def log_business_history(
     map_id: int,
     log_type: str,

@@ -28,6 +28,36 @@ from pages.xml_export import render as render_xml
 from utils.agent_control import get_status, pause, resume, start, stop
 from utils.env_manager import read_env, write_env_key
 
+_AGENT_CONTROL_ACTIONS = {
+    "start": ("Agent 시작 중...", start),
+    "pause": ("Agent 일시정지 요청 중...", pause),
+    "resume": ("Agent 재개 요청 중...", resume),
+    "stop": ("Agent 중지 요청 중...", stop),
+}
+
+
+def _queue_agent_control(action: str) -> None:
+    st.session_state["agent_control_pending"] = action
+    st.rerun()
+
+
+def _run_pending_agent_control() -> None:
+    action = st.session_state.get("agent_control_pending")
+    if not action:
+        return
+
+    label, handler = _AGENT_CONTROL_ACTIONS.get(action, ("Agent 제어 중...", None))
+    with st.spinner(label):
+        try:
+            message = handler() if handler else f"알 수 없는 Agent 제어 요청입니다: {action}"
+        except Exception as exc:
+            message = f"Agent 제어 실패: {exc}"
+
+    st.session_state.pop("agent_control_pending", None)
+    st.toast(message)
+    st.rerun()
+
+
 _MENU = {
     "📊 Dashboard": render_dashboard,
     "🔎 Fail Analysis": render_fail_analysis,
@@ -113,31 +143,27 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("#### ⚙️ Agent 제어")
+    _run_pending_agent_control()
 
     status = get_status()
     st.markdown(f"**{status['label']}**" + (f"  `PID {status['pid']}`" if status["pid"] else ""))
 
     if not status["running"]:
         if st.button("▶️ 시작", width="stretch", type="primary"):
-            msg = start()
-            st.toast(msg)
-            st.rerun()
+            _queue_agent_control("start")
     else:
         c1, c2 = st.columns(2)
         if status["paused"]:
             with c1:
                 if st.button("▶️ 재개", width="stretch", type="primary"):
-                    st.toast(resume())
-                    st.rerun()
+                    _queue_agent_control("resume")
         else:
             with c1:
                 if st.button("⏸️ 일시정지", width="stretch"):
-                    st.toast(pause())
-                    st.rerun()
+                    _queue_agent_control("pause")
         with c2:
             if st.button("⏹️ 중지", width="stretch", type="secondary"):
-                st.toast(stop())
-                st.rerun()
+                _queue_agent_control("stop")
 
     st.markdown("---")
     st.caption("Unified Multi-Agent Pipeline")

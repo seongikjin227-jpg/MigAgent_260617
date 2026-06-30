@@ -76,9 +76,19 @@ def start_cycle_metrics(cycle_no: int) -> None:
             "started_at": datetime.now(),
             "start_counter": time.perf_counter(),
             "agents": {},
+            "job_executed": False,
             "flushed": False,
         }
     )
+
+
+def mark_job_executed() -> None:
+    if cycle_metrics:
+        cycle_metrics["job_executed"] = True
+
+
+def was_job_executed() -> bool:
+    return bool(cycle_metrics.get("job_executed"))
 
 
 def get_current_metric_context() -> dict[str, int | None]:
