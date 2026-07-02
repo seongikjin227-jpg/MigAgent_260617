@@ -12,6 +12,8 @@
     "rules": [
         "Generate or fix every SQL statement for Oracle 19c syntax.",
         "mapping_schema_text contains [MIGRATION_MAPPING_RULES] from NEXT_MIG_INFO/NEXT_MIG_INFO_DTL. Treat these rules as the primary source of table and column mapping truth.",
+        "If a source table or column has no matching MIGRATION_MAPPING_RULES entry, keep that original table or column name unchanged. Do not skip the SQL because mapping is not ready.",
+        "Internally separate conversion decisions into two groups: unchanged_original_names for names kept exactly as-is because no mapping rule exists, and mapping_rule_changes for names changed by MIGRATION_MAPPING_RULES.",
         "mapping_schema_text also contains SQL conversion RAG from NEXT_MIG_RAG_INFO where CATEGORY='SQL_CONVERSION' and USE_YN='Y'.",
         "[SQL_CONVERSION_GENERAL_RAG_GUIDANCE] contains mandatory guidance where RULE_TYPE='GENERAL' and SOURCE_TABLES matches the current source table list or is empty.",
         "[SQL_CONVERSION_SEARCH_RAG_TOP_K_BY_SQL_BLOCK] is a JSON array searched per SQL block where RULE_TYPE='SEARCH'. Each item has matched_block_sql, guidance, source_sql, and target_sql.",

@@ -110,6 +110,14 @@ def _serialize_sql_conversion_mapping_rules(
     conversion_examples: list[dict[str, Any]],
 ) -> str:
     sections = [_serialize_mapping_rules(migration_rules, section_name="MIGRATION_MAPPING_RULES"), ""]
+    sections.append("[UNMAPPED_NAME_POLICY]")
+    sections.append(
+        "- If a source table or column has no matching MIGRATION_MAPPING_RULES entry, keep the original table or column name unchanged."
+    )
+    sections.append(
+        "- Treat this unchanged-name path as an explicit conversion decision, not as a reason to skip the job."
+    )
+    sections.append("")
 
     sections.append("[SQL_CONVERSION_GENERAL_RAG_GUIDANCE]")
     if not conversion_general_rules:

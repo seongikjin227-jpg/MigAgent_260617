@@ -41,6 +41,7 @@ callbacks: dict = {}
 # ── 현재 Supervisor cycle의 agent별 처리량/소요시간 누적 ───────────────────────
 cycle_metrics: dict = {}
 batch_metrics: dict = {}
+_job_execution_lock = threading.Lock()
 
 def init_callbacks(**kwargs):
     """에이전트 인스턴스와 로거 등의 콜백을 등록합니다."""
@@ -85,6 +86,15 @@ def start_cycle_metrics(cycle_no: int) -> None:
 def mark_job_executed() -> None:
     if cycle_metrics:
         cycle_metrics["job_executed"] = True
+
+
+def claim_job_execution() -> bool:
+    """Return True only for the first job tool executed in the current cycle."""
+    with _job_execution_lock:
+        if bool(cycle_metrics.get("job_executed")):
+            return False
+        mark_job_executed()
+        return True
 
 
 def was_job_executed() -> bool:

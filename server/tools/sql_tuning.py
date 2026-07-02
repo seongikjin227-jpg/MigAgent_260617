@@ -4,7 +4,7 @@ from langchain_core.tools import tool
 
 from server.tools.context import (
     callbacks,
-    mark_job_executed,
+    claim_job_execution,
     record_agent_run,
     refresh_jobs_after_tool,
     tuning_registry,
@@ -25,8 +25,10 @@ def run_sql_tuning(row_ids: list) -> str:
 
         started = time.perf_counter()
         try:
-            mark_job_executed()
-            callbacks["sql_inc"](row_id)
+            if not claim_job_execution():
+                return "SKIP: another job already ran in this supervisor cycle."
+            row_key = str(row_id)
+            callbacks["sql_inc"](row_key)
             final_status = callbacks["tune_proc"](job)
             record_agent_run("SQL_TUNING", time.perf_counter() - started, final_status)
             results.append(f"row_id={row_id} completed")

@@ -59,6 +59,15 @@ def reset_active_model() -> str | None:
 
 def is_model_fallback_error(message: str) -> bool:
     text = (message or "").lower()
+    deployment_unavailable_patterns = (
+        "no deployments available",
+        "no deployment available",
+        "deployment unavailable",
+        "selected model",
+    )
+    if any(pattern in text for pattern in deployment_unavailable_patterns):
+        return True
+
     api_key_rate_limit_patterns = (
         "rate limit exceed for api_key",
         "rate limit exceeded for api_key",

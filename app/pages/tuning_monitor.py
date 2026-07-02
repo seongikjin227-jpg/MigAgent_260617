@@ -111,6 +111,21 @@ def _selected_detail_labels(selected: list[str]) -> list[str]:
     return selected
 
 
+def _selected_row_position(table_event) -> int | None:
+    selection = getattr(table_event, "selection", None)
+    if selection is None and isinstance(table_event, dict):
+        selection = table_event.get("selection")
+    if not selection:
+        return None
+
+    rows = getattr(selection, "rows", None)
+    if rows is None and isinstance(selection, dict):
+        rows = selection.get("rows")
+    if not rows:
+        return None
+    return int(rows[0])
+
+
 def _render_detail_stack(row: dict, labels: list[str], side: str) -> None:
     if not labels:
         st.info("선택된 컬럼 없음")
@@ -313,8 +328,20 @@ def render():
         df = df[df["FORMATTED_SQL"].str.strip() == ""]
 
     show_cols = [c for c in _COLS_TABLE if c in df.columns]
+    grid_df = df.reset_index(drop=True)
     st.caption(f"검색 결과 {len(df)}건 / 전체 {len(df_all)}건")
-    st.dataframe(df[show_cols], width="stretch", hide_index=True)
+    table_event = st.dataframe(
+        grid_df[show_cols],
+        width="stretch",
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="tuning_monitor_grid",
+    )
+
+    selected_pos = _selected_row_position(table_event)
+    if selected_pos is not None and selected_pos < len(grid_df):
+        st.session_state["tuning_monitor_selected_row_id"] = str(grid_df.iloc[selected_pos]["ROW_ID"])
 
     st.divider()
     st.subheader("튜닝 결과 비교")
@@ -323,8 +350,13 @@ def render():
         st.warning("조건에 맞는 튜닝 작업이 없습니다.")
         return
 
-    row_ids = df["ROW_ID"].tolist()
-    labels = [_label(r) for _, r in df.iterrows()]
+    selected_from_grid = st.session_state.get("tuning_monitor_selected_row_id")
+    if selected_from_grid in set(grid_df["ROW_ID"].astype(str)):
+        selected_mask = grid_df["ROW_ID"].astype(str) == str(selected_from_grid)
+        grid_df = pd.concat([grid_df[selected_mask], grid_df[~selected_mask]], ignore_index=True)
+
+    row_ids = grid_df["ROW_ID"].tolist()
+    labels = [_label(r) for _, r in grid_df.iterrows()]
     idx = st.selectbox("목록 선택", range(len(labels)), format_func=lambda i: labels[i])
 
     sel_row_id = row_ids[idx]

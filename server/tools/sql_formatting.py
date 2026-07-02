@@ -5,7 +5,7 @@ from langchain_core.tools import tool
 from server.tools.context import (
     callbacks,
     formatting_registry,
-    mark_job_executed,
+    claim_job_execution,
     record_agent_run,
     refresh_jobs_after_tool,
 )
@@ -25,8 +25,10 @@ def run_sql_formatting(row_ids: list) -> str:
 
         started = time.perf_counter()
         try:
-            mark_job_executed()
-            callbacks["sql_inc"](row_id)
+            if not claim_job_execution():
+                return "SKIP: another job already ran in this supervisor cycle."
+            row_key = str(row_id)
+            callbacks["sql_inc"](row_key)
             final_status = callbacks["format_proc"](job)
             record_agent_run("SQL_FORMATTING", time.perf_counter() - started, final_status)
             results.append(f"row_id={row_id} completed")
