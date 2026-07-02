@@ -18,6 +18,8 @@ _COLS_TABLE = [
     "MAP_TYPE",
     "EFFECTIVE_FR_SQL_LEN",
     "TO_SQL_LEN",
+    "TUNED_SQL_LEN",
+    "FORMATTED_SQL_LEN",
     "TARGET_TABLE",
     "UPD_TS",
 ]
@@ -228,6 +230,12 @@ def render():
         with c4:
             any_sql_query = st.text_input("SQL/LOG 본문 LIKE", placeholder="FROM, JOIN, 오류 메시지")
 
+        c1, c2 = st.columns(2)
+        with c1:
+            tuned_result_query = st.text_input("TUNED_RESULT LIKE", placeholder="NO TUNING, INDEX, JOIN")
+        with c2:
+            block_rag_query = st.text_input("BLOCK_RAG_CONTENT LIKE", placeholder="tuning rule search")
+
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
             sel_status = st.selectbox("STATUS", _options(df_all, "STATUS"))
@@ -262,9 +270,16 @@ def render():
             + "\n"
             + df["FORMATTED_SQL"]
             + "\n"
+            + df["TUNED_RESULT"]
+            + "\n"
+            + df["BLOCK_RAG_CONTENT"]
+            + "\n"
             + df["LOG"]
         )
         df = df[_contains(fields, any_sql_query)]
+
+    df = df[_contains(df["TUNED_RESULT"], tuned_result_query)]
+    df = df[_contains(df["BLOCK_RAG_CONTENT"], block_rag_query)]
 
     if sel_status != ALL:
         df = df[df["STATUS"] == sel_status]

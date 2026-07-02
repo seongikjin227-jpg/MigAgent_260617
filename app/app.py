@@ -23,7 +23,6 @@ from pages.rag_manager_page import render as render_rag
 from pages.settings_page import render as render_settings
 from pages.sql_monitor import render as render_sql
 from pages.system_health import render as render_health
-from pages.tuning_monitor import render as render_tuning
 from pages.xml_export import render as render_xml
 from utils.agent_control import get_status, pause, resume, start, stop
 from utils.env_manager import read_env, write_env_key
@@ -63,7 +62,6 @@ _MENU = {
     "🔎 Fail Analysis": render_fail_analysis,
     "🗄️ Mig Agent Monitor": render_mig,
     "🧾 SQL Agent Monitor": render_sql,
-    "⚡ Tuning Agent Monitor": render_tuning,
     "✅ Correct SQL Manager": render_correct_sql,
     "📚 Tuning Rule Manager": render_rag,
     "🩺 System Health": render_health,

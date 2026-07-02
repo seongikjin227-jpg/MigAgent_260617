@@ -244,8 +244,7 @@ streamlit run app/app.py
 주요 화면:
 
 - Dashboard: 전체 현황, agent control, fail analysis, chatbot
-- SQL Agent Monitor: conversion row 목록과 상세 SQL 비교
-- Tuning Agent Monitor: tuning 전/후 비교, `BLOCK_RAG_CONTENT`, `TUNED_RESULT`
+- SQL Agent Monitor: conversion/tuning row 목록과 상세 SQL, `BLOCK_RAG_CONTENT`, `TUNED_RESULT` 비교
 - Correct SQL: correct SQL 입력/관리
 - RAG Rule Manager: `NEXT_MIG_RAG_INFO` CRUD
 - XML Export: namespace별 mapper XML 다운로드
